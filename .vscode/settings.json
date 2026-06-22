@@ -1,0 +1,4 @@
+{
+  "dart.notifyAnalyzerErrors": false,
+  "dart.devToolsBrowser": "default"
+}

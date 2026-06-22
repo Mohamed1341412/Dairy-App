@@ -1,0 +1,793 @@
+[
+  {
+    "name": "users",
+    "type": "auth",
+    "system": false,
+    "schema": [
+      { "name": "name", "type": "text", "required": true },
+      { "name": "role", "type": "select", "options": { "values": ["super_admin", "admin", "employee"] } },
+      { "name": "is_archived", "type": "bool", "default": false },
+      { "name": "created_by", "type": "relation", "options": { "collectionId": "users", "maxSelect": 1 } }
+    ]
+  },
+  {
+    "name": "activity_logs",
+    "type": "base",
+    "system": false,
+    "schema": [
+      { "name": "user_id", "type": "relation", "options": { "collectionId": "users", "maxSelect": 1 } },
+      { "name": "action", "type": "text", "required": true },
+      { "name": "operation_type", "type": "select", "options": { "values": ["create", "update", "archive", "restore", "post", "reverse", "adjust", "permission"] } },
+      { "name": "collection_name", "type": "text", "required": true },
+      { "name": "record_id", "type": "text", "required": true },
+      { "name": "old_data", "type": "json" },
+      { "name": "new_data", "type": "json" },
+
+    ],
+    "indexes": [
+      "CREATE INDEX idx_activity_logs_collection_record ON activity_logs (collection_name, record_id)",
+      "CREATE INDEX idx_activity_logs_user ON activity_logs (user_id)",
+      "CREATE INDEX idx_activity_logs_created ON activity_logs (created)",
+      "CREATE INDEX idx_activity_logs_action ON activity_logs (action)"
+]
+  },
+  {
+    "name": "units",
+    "type": "base",
+    "system": false,
+    "schema": [
+      { "name": "name", "type": "text", "required": true },
+      { "name": "symbol", "type": "text" },
+      { "name": "is_active", "type": "bool", "default": true }
+    ]
+  },
+  {
+    "name": "stores",
+    "type": "base",
+    "system": false,
+    "schema": [
+      { "name": "name", "type": "text", "required": true },
+      { "name": "location", "type": "text" },
+      { "name": "is_main", "type": "bool", "default": false },
+      { "name": "is_archived", "type": "bool", "default": false }
+    ]
+  },
+  {
+    "name": "financial_accounts",
+    "type": "base",
+    "system": false,
+    "schema": [
+      { "name": "name", "type": "text", "required": true },
+      { "name": "type", "type": "select", "options": { "values": ["cash", "bank", "wallet"] } },
+      { "name": "opening_balance", "type": "number", "default": 0 },
+      { "name": "cached_balance", "type": "number", "default": 0 },
+      { "name": "is_archived", "type": "bool", "default": false },
+      { "name": "created_by", "type": "relation", "options": { "collectionId": "users", "maxSelect": 1 } }
+    ],
+    "indexes": ["CREATE UNIQUE INDEX idx_financial_accounts_name ON financial_accounts (name)"]
+  },
+  {
+    "name": "financial_account_ledgers",
+    "type": "base",
+    "system": false,
+    "schema": [
+      { "name": "account_id", "type": "relation", "options": { "collectionId": "financial_accounts", "maxSelect": 1 } },
+      { "name": "transaction_id", "type": "relation", "options": { "collectionId": "transactions", "maxSelect": 1 } },
+      { "name": "payment_id", "type": "relation", "options": { "collectionId": "payments", "maxSelect": 1 } },
+      { "name": "debit", "type": "number", "default": 0 },
+      { "name": "credit", "type": "number", "default": 0 },
+      { "name": "balance_after", "type": "number", "required": true },
+      { "name": "entry_date", "type": "date", "required": true },
+      { "name": "notes", "type": "text" }
+    ],
+    "indexes": ["CREATE INDEX idx_fa_ledger_account ON financial_account_ledgers (account_id)"]
+  },
+  {
+    "name": "product_categories",
+    "type": "base",
+    "system": false,
+    "schema": [
+      { "name": "name", "type": "text", "required": true },
+      { "name": "description", "type": "text" },
+      { "name": "is_archived", "type": "bool", "default": false },
+      { "name": "created_by", "type": "relation", "options": { "collectionId": "users", "maxSelect": 1 } }
+    ]
+  },
+  {
+    "name": "products",
+    "type": "base",
+    "system": false,
+    "schema": [
+      { "name": "name", "type": "text", "required": true },
+      { "name": "category_id", "type": "relation", "options": { "collectionId": "product_categories", "maxSelect": 1 } },
+      { "name": "sku", "type": "text" },
+      { "name": "barcode", "type": "text" },
+      { "name": "description", "type": "text" },
+      { "name": "unit_id", "type": "relation", "options": { "collectionId": "units", "maxSelect": 1 } },
+      { "name": "selling_price", "type": "number", "required": true },
+      { "name": "cost_price", "type": "number" },
+      { "name": "current_stock", "type": "number", "default": 0 },
+      { "name": "reserved_stock", "type": "number", "default": 0 },
+      { "name": "available_stock", "type": "number", "default": 0 },
+      { "name": "minimum_stock_alert", "type": "number", "default": 0 },
+      { "name": "image", "type": "file", "options": { "maxSelect": 1, "mimeTypes": ["image/jpeg", "image/png", "image/webp"] } },
+      { "name": "is_active", "type": "bool", "default": true },
+      { "name": "is_archived", "type": "bool", "default": false },
+      { "name": "created_by", "type": "relation", "options": { "collectionId": "users", "maxSelect": 1 } }
+    ],
+    "indexes": [
+      "CREATE UNIQUE INDEX idx_products_sku ON products (sku)",
+      "CREATE UNIQUE INDEX idx_products_barcode ON products (barcode)"
+    ]
+  },
+  {
+    "name": "product_batches",
+    "type": "base",
+    "system": false,
+    "schema": [
+      { "name": "product_id", "type": "relation", "options": { "collectionId": "products", "maxSelect": 1 } },
+      { "name": "production_batch_id", "type": "relation", "options": { "collectionId": "production_batches", "maxSelect": 1 } },
+      { "name": "batch_code", "type": "text", "required": true },
+      { "name": "production_date", "type": "date", "required": true },
+      { "name": "expiration_date", "type": "date", "required": true },
+      { "name": "quantity_produced", "type": "number", "required": true },
+      { "name": "quantity_remaining", "type": "number", "required": true },
+      { "name": "wasted_quantity", "type": "number", "default": 0 },
+      { "name": "waste_reason", "type": "text" },
+      { "name": "wasted_date", "type": "date" },
+      { "name": "unit_cost", "type": "number", "default": 0 },
+      { "name": "total_cost", "type": "number", "default": 0 },
+      { "name": "status", "type": "select", "options": { "values": ["active", "expired", "sold_out"] } },
+      { "name": "store_id", "type": "relation", "options": { "collectionId": "stores", "maxSelect": 1 } }
+    ],
+    "indexes": [
+      "CREATE UNIQUE INDEX idx_product_batches_code ON product_batches (batch_code)",
+      "CREATE INDEX idx_product_batches_product ON product_batches (product_id)",
+      "CREATE INDEX idx_product_batches_expiry ON product_batches (expiration_date)"
+    ]
+  },
+  {
+    "name": "materials",
+    "type": "base",
+    "system": false,
+    "schema": [
+      { "name": "name", "type": "text", "required": true },
+      { "name": "material_type", "type": "select", "options": { "values": ["raw", "packaging", "consumable"] } },
+      { "name": "unit_id", "type": "relation", "options": { "collectionId": "units", "maxSelect": 1 } },
+      { "name": "cost_per_unit", "type": "number", "default": 0 },
+      { "name": "minimum_stock_alert", "type": "number", "default": 0 },
+      { "name": "current_stock", "type": "number", "default": 0 },
+      { "name": "reserved_stock", "type": "number", "default": 0 },
+      { "name": "available_stock", "type": "number", "default": 0 },
+      { "name": "notes", "type": "text" },
+      { "name": "is_archived", "type": "bool", "default": false },
+      { "name": "created_by", "type": "relation", "options": { "collectionId": "users", "maxSelect": 1 } }
+    ],
+    "indexes": ["CREATE INDEX idx_materials_type ON materials (material_type)"]
+  },
+  {
+    "name": "raw_milk_receiving",
+    "type": "base",
+    "system": false,
+    "schema": [
+      { "name": "supplier_id", "type": "relation", "options": { "collectionId": "vendors", "maxSelect": 1 } },
+      { "name": "quantity_liters", "type": "number", "required": true },
+      { "name": "fat_percentage", "type": "number" },
+      { "name": "protein_percentage", "type": "number" },
+      { "name": "price_per_liter", "type": "number", "required": true },
+      { "name": "total_cost", "type": "number", "required": true },
+      { "name": "receipt_date", "type": "date", "required": true },
+      { "name": "batch_code", "type": "text", "required": true },
+      { "name": "notes", "type": "text" },
+      { "name": "status", "type": "select", "options": { "values": ["pending", "approved", "rejected"] }, "default": "pending" },
+      { "name": "received_by", "type": "relation", "options": { "collectionId": "users", "maxSelect": 1 } },
+      { "name": "created_by", "type": "relation", "options": { "collectionId": "users", "maxSelect": 1 } }
+    ],
+    "indexes": [
+      "CREATE UNIQUE INDEX idx_raw_milk_batch ON raw_milk_receiving (batch_code)",
+      "CREATE INDEX idx_raw_milk_date ON raw_milk_receiving (receipt_date)"
+    ]
+  },
+  {
+    "name": "material_movements",
+    "type": "base",
+    "system": false,
+    "schema": [
+      { "name": "material_id", "type": "relation", "options": { "collectionId": "materials", "maxSelect": 1 } },
+      { "name": "movement_type", "type": "select", "options": { "values": ["purchase", "production_consumption", "adjustment", "waste"] } },
+      { "name": "direction", "type": "select", "options": { "values": ["in", "out"] }, "required": true },
+      { "name": "quantity", "type": "number", "required": true },
+      { "name": "quantity_before", "type": "number" },
+      { "name": "quantity_after", "type": "number" },
+      { "name": "unit_cost", "type": "number", "default": 0 },
+      { "name": "total_cost", "type": "number", "default": 0 },
+      { "name": "business_date", "type": "date", "required": true },
+      { "name": "reference_number", "type": "text", "unique": true },
+      { "name": "sync_id", "type": "text", "unique": true },
+      { "name": "notes", "type": "text" },
+      { "name": "created_by", "type": "relation", "options": { "collectionId": "users", "maxSelect": 1 } }
+    ],
+    "indexes": ["CREATE INDEX idx_material_movements_material ON material_movements (material_id)"]
+  },
+  {
+    "name": "product_recipes",
+    "type": "base",
+    "system": false,
+    "schema": [
+      { "name": "product_id", "type": "relation", "options": { "collectionId": "products", "maxSelect": 1 } },
+      { "name": "notes", "type": "text" },
+      { "name": "created_by", "type": "relation", "options": { "collectionId": "users", "maxSelect": 1 } }
+    ]
+  },
+  {
+    "name": "recipe_items",
+    "type": "base",
+    "system": false,
+    "schema": [
+      { "name": "recipe_id", "type": "relation", "options": { "collectionId": "product_recipes", "maxSelect": 1 } },
+      { "name": "material_id", "type": "relation", "options": { "collectionId": "materials", "maxSelect": 1 } },
+      { "name": "quantity", "type": "number", "required": true }
+    ],
+    "indexes": ["CREATE INDEX idx_recipe_items_recipe ON recipe_items (recipe_id)"]
+  },
+  {
+    "name": "production_batches",
+    "type": "base",
+    "system": false,
+    "schema": [
+      { "name": "production_code", "type": "text", "required": true },
+      { "name": "production_date", "type": "date", "required": true },
+      { "name": "estimated_cost", "type": "number", "default": 0 },
+      { "name": "actual_cost", "type": "number", "default": 0 },
+      { "name": "notes", "type": "text" },
+      { "name": "status", "type": "select", "options": { "values": ["pending", "in_progress", "completed", "cancelled"] } },
+      { "name": "created_by", "type": "relation", "options": { "collectionId": "users", "maxSelect": 1 } }
+    ]
+  },
+  {
+    "name": "production_inputs",
+    "type": "base",
+    "system": false,
+    "schema": [
+      { "name": "production_batch_id", "type": "relation", "options": { "collectionId": "production_batches", "maxSelect": 1 } },
+      { "name": "material_id", "type": "relation", "options": { "collectionId": "materials", "maxSelect": 1 } },
+      { "name": "quantity_used", "type": "number", "required": true },
+      { "name": "raw_milk_batch_code", "type": "text" }
+    ],
+    "indexes": ["CREATE INDEX idx_production_inputs_batch ON production_inputs (production_batch_id)"]
+  },
+  {
+    "name": "production_outputs",
+    "type": "base",
+    "system": false,
+    "schema": [
+      { "name": "production_batch_id", "type": "relation", "options": { "collectionId": "production_batches", "maxSelect": 1 } },
+      { "name": "product_id", "type": "relation", "options": { "collectionId": "products", "maxSelect": 1 } },
+      { "name": "quantity_produced", "type": "number", "required": true },
+      { "name": "waste_quantity", "type": "number", "default": 0 },
+      { "name": "unit_cost", "type": "number", "default": 0 },
+      { "name": "total_cost", "type": "number", "default": 0 },
+      { "name": "batch_id", "type": "relation", "options": { "collectionId": "product_batches", "maxSelect": 1 } }
+    ]
+  },
+  {
+    "name": "quality_tests",
+    "type": "base",
+    "system": false,
+    "schema": [
+      { "name": "product_batch_id", "type": "relation", "options": { "collectionId": "product_batches", "maxSelect": 1 } },
+      { "name": "test_date", "type": "date", "required": true },
+      { "name": "fat_percentage", "type": "number" },
+      { "name": "protein_percentage", "type": "number" },
+      { "name": "bacteria_count", "type": "number" },
+      { "name": "is_passed", "type": "bool", "required": true },
+      { "name": "notes", "type": "text" },
+      { "name": "created_by", "type": "relation", "options": { "collectionId": "users", "maxSelect": 1 } }
+    ]
+  },
+  {
+    "name": "inventory_movements",
+    "type": "base",
+    "system": false,
+    "schema": [
+      { "name": "product_id", "type": "relation", "options": { "collectionId": "products", "maxSelect": 1 } },
+      { "name": "batch_id", "type": "relation", "options": { "collectionId": "product_batches", "maxSelect": 1 } },
+      { "name": "movement_type", "type": "select", "options": { "values": ["production", "sale", "return", "adjustment", "waste"] } },
+      { "name": "direction", "type": "select", "options": { "values": ["in", "out"] }, "required": true },
+      { "name": "quantity", "type": "number", "required": true },
+      { "name": "quantity_before", "type": "number" },
+      { "name": "quantity_after", "type": "number" },
+      { "name": "unit_cost", "type": "number", "default": 0 },
+      { "name": "total_cost", "type": "number", "default": 0 },
+      { "name": "business_date", "type": "date", "required": true },
+      { "name": "reference_number", "type": "text", "unique": true },
+      { "name": "sync_id", "type": "text", "unique": true },
+      { "name": "notes", "type": "text" },
+      { "name": "created_by", "type": "relation", "options": { "collectionId": "users", "maxSelect": 1 } }
+    ],
+    "indexes": [
+      "CREATE INDEX idx_inventory_product ON inventory_movements (product_id)",
+      "CREATE INDEX idx_inventory_batch ON inventory_movements (batch_id)"
+    ]
+  },
+  {
+    "name": "stock_adjustments",
+    "type": "base",
+    "system": false,
+    "schema": [
+      { "name": "product_id", "type": "relation", "options": { "collectionId": "products", "maxSelect": 1 } },
+      { "name": "batch_id", "type": "relation", "options": { "collectionId": "product_batches", "maxSelect": 1 } },
+      { "name": "expected_quantity", "type": "number", "required": true },
+      { "name": "actual_quantity", "type": "number", "required": true },
+      { "name": "difference", "type": "number", "required": true },
+      { "name": "reason", "type": "text" },
+      { "name": "adjustment_date", "type": "date", "required": true },
+      { "name": "created_by", "type": "relation", "options": { "collectionId": "users", "maxSelect": 1 } }
+    ]
+  },
+  {
+    "name": "stock_transfers",
+    "type": "base",
+    "system": false,
+    "schema": [
+      { "name": "from_store_id", "type": "relation", "options": { "collectionId": "stores", "maxSelect": 1 } },
+      { "name": "to_store_id", "type": "relation", "options": { "collectionId": "stores", "maxSelect": 1 } },
+      { "name": "transfer_date", "type": "date", "required": true },
+      { "name": "status", "type": "select", "options": { "values": ["pending", "completed", "cancelled"] } },
+      { "name": "notes", "type": "text" },
+      { "name": "created_by", "type": "relation", "options": { "collectionId": "users", "maxSelect": 1 } }
+    ]
+  },
+  {
+    "name": "stock_transfer_items",
+    "type": "base",
+    "system": false,
+    "schema": [
+      { "name": "transfer_id", "type": "relation", "options": { "collectionId": "stock_transfers", "maxSelect": 1 } },
+      { "name": "product_id", "type": "relation", "options": { "collectionId": "products", "maxSelect": 1 } },
+      { "name": "batch_id", "type": "relation", "options": { "collectionId": "product_batches", "maxSelect": 1 } },
+      { "name": "quantity", "type": "number", "required": true }
+    ]
+  },
+  {
+    "name": "vendors",
+    "type": "base",
+    "system": false,
+    "schema": [
+      { "name": "name", "type": "text", "required": true },
+      { "name": "phone", "type": "text" },
+      { "name": "address", "type": "text" },
+      { "name": "opening_balance", "type": "number", "default": 0 },
+      { "name": "cached_balance", "type": "number", "default": 0 },
+      { "name": "status", "type": "select", "options": { "values": ["active", "blocked"] }, "default": "active" },
+      { "name": "notes", "type": "text" },
+      { "name": "is_archived", "type": "bool", "default": false },
+      { "name": "created_by", "type": "relation", "options": { "collectionId": "users", "maxSelect": 1 } }
+    ]
+  },
+  {
+    "name": "purchase_orders",
+    "type": "base",
+    "system": false,
+    "schema": [
+      { "name": "vendor_id", "type": "relation", "options": { "collectionId": "vendors", "maxSelect": 1 } },
+      { "name": "purchase_date", "type": "date", "required": true },
+      { "name": "delivery_date", "type": "date" },
+      { "name": "subtotal", "type": "number", "default": 0 },
+      { "name": "discount", "type": "number", "default": 0 },
+      { "name": "tax", "type": "number", "default": 0 },
+      { "name": "shipping_fee", "type": "number", "default": 0 },
+      { "name": "net_amount", "type": "number", "required": true },
+      { "name": "payment_status", "type": "select", "options": { "values": ["paid", "partial", "later"] } },
+      { "name": "status", "type": "select", "options": { "values": ["draft", "confirmed", "processing", "delivered", "completed", "cancelled"] }, "default": "draft" },
+      { "name": "business_date", "type": "date", "required": true },
+      { "name": "reference_number", "type": "text", "unique": true },
+      { "name": "remaining_amount", "type": "number", "default": 0 },
+      { "name": "is_locked", "type": "bool", "default": false },
+      { "name": "locked_at", "type": "date" },
+      { "name": "locked_by", "type": "relation", "options": { "collectionId": "users", "maxSelect": 1 } },
+      { "name": "notes", "type": "text" },
+      { "name": "created_by", "type": "relation", "options": { "collectionId": "users", "maxSelect": 1 } }
+    ],
+    "indexes": ["CREATE INDEX idx_purchase_orders_vendor ON purchase_orders (vendor_id)"]
+  },
+  {
+    "name": "purchase_order_items",
+    "type": "base",
+    "system": false,
+    "schema": [
+      { "name": "purchase_order_id", "type": "relation", "options": { "collectionId": "purchase_orders", "maxSelect": 1 } },
+      { "name": "line_type", "type": "select", "required": true, "options": { "values": ["material", "product"] } },
+      { "name": "material_id", "type": "relation", "options": { "collectionId": "materials", "maxSelect": 1 } },
+      { "name": "product_id", "type": "relation", "options": { "collectionId": "products", "maxSelect": 1 } },
+      { "name": "quantity", "type": "number", "required": true },
+      { "name": "unit_cost", "type": "number", "required": true },
+      { "name": "total_cost", "type": "number", "required": true }
+    ],
+    "indexes": [
+      "CREATE INDEX idx_purchase_order_items_order ON purchase_order_items (purchase_order_id)",
+      "CREATE INDEX idx_purchase_items_line_type ON purchase_order_items (line_type)"
+    ]
+  },
+  {
+    "name": "vendor_ledgers",
+    "type": "base",
+    "system": false,
+    "schema": [
+      { "name": "vendor_id", "type": "relation", "options": { "collectionId": "vendors", "maxSelect": 1 } },
+      { "name": "transaction_id", "type": "relation", "options": { "collectionId": "transactions", "maxSelect": 1 } },
+      { "name": "debit", "type": "number", "default": 0 },
+      { "name": "credit", "type": "number", "default": 0 },
+      { "name": "balance_after", "type": "number", "required": true },
+      { "name": "notes", "type": "text" }
+    ],
+    "indexes": ["CREATE INDEX idx_vendor_ledgers_vendor ON vendor_ledgers (vendor_id)"]
+  },
+  {
+    "name": "clients",
+    "type": "base",
+    "system": false,
+    "schema": [
+      { "name": "name", "type": "text", "required": true },
+      { "name": "phone", "type": "text" },
+      { "name": "address", "type": "text" },
+      { "name": "credit_limit", "type": "number", "default": 0 },
+      { "name": "opening_balance", "type": "number", "default": 0 },
+      { "name": "cached_balance", "type": "number", "default": 0 },
+      { "name": "status", "type": "select", "options": { "values": ["active", "blocked"] }, "default": "active" },
+      { "name": "notes", "type": "text" },
+      { "name": "is_archived", "type": "bool", "default": false },
+      { "name": "created_by", "type": "relation", "options": { "collectionId": "users", "maxSelect": 1 } }
+    ]
+  },
+  {
+    "name": "sales_orders",
+    "type": "base",
+    "system": false,
+    "schema": [
+      { "name": "client_id", "type": "relation", "options": { "collectionId": "clients", "maxSelect": 1 } },
+      { "name": "order_date", "type": "date", "required": true },
+      { "name": "delivery_date", "type": "date" },
+      { "name": "subtotal", "type": "number", "default": 0 },
+      { "name": "discount", "type": "number", "default": 0 },
+      { "name": "tax", "type": "number", "default": 0 },
+      { "name": "shipping_fee", "type": "number", "default": 0 },
+      { "name": "net_amount", "type": "number", "required": true },
+      { "name": "payment_method", "type": "select", "options": { "values": ["cash", "bank", "credit"] } },
+      { "name": "payment_status", "type": "select", "options": { "values": ["paid", "partial", "later"] } },
+      { "name": "status", "type": "select", "options": { "values": ["draft", "confirmed", "processing", "delivered", "completed", "cancelled"] }, "default": "draft" },
+      { "name": "business_date", "type": "date", "required": true },
+      { "name": "reference_number", "type": "text", "unique": true },
+      { "name": "remaining_amount", "type": "number", "default": 0 },
+      { "name": "is_locked", "type": "bool", "default": false },
+      { "name": "locked_at", "type": "date" },
+      { "name": "locked_by", "type": "relation", "options": { "collectionId": "users", "maxSelect": 1 } },
+      { "name": "notes", "type": "text" },
+      { "name": "created_by", "type": "relation", "options": { "collectionId": "users", "maxSelect": 1 } }
+    ],
+    "indexes": [
+      "CREATE INDEX idx_sales_orders_client ON sales_orders (client_id)",
+      "CREATE INDEX idx_sales_orders_date ON sales_orders (order_date)"
+    ]
+  },
+  {
+    "name": "sales_order_items",
+    "type": "base",
+    "system": false,
+    "schema": [
+      { "name": "sales_order_id", "type": "relation", "options": { "collectionId": "sales_orders", "maxSelect": 1 } },
+      { "name": "product_id", "type": "relation", "options": { "collectionId": "products", "maxSelect": 1 } },
+      { "name": "batch_id", "type": "relation", "options": { "collectionId": "product_batches", "maxSelect": 1 } },
+      { "name": "quantity", "type": "number", "required": true },
+      { "name": "unit_cost", "type": "number", "default": 0 },
+      { "name": "unit_price", "type": "number", "required": true },
+      { "name": "total_price", "type": "number", "required": true }
+    ],
+    "indexes": ["CREATE INDEX idx_sales_order_items_order ON sales_order_items (sales_order_id)"]
+  },
+  {
+    "name": "client_ledgers",
+    "type": "base",
+    "system": false,
+    "schema": [
+      { "name": "client_id", "type": "relation", "options": { "collectionId": "clients", "maxSelect": 1 } },
+      { "name": "transaction_id", "type": "relation", "options": { "collectionId": "transactions", "maxSelect": 1 } },
+      { "name": "debit", "type": "number", "default": 0 },
+      { "name": "credit", "type": "number", "default": 0 },
+      { "name": "balance_after", "type": "number", "required": true },
+      { "name": "notes", "type": "text" }
+    ],
+    "indexes": ["CREATE INDEX idx_client_ledgers_client ON client_ledgers (client_id)"]
+  },
+  {
+    "name": "transactions",
+    "type": "base",
+    "system": false,
+    "schema": [
+      { "name": "transaction_number", "type": "text", "required": true },
+      { "name": "account_id", "type": "relation", "options": { "collectionId": "financial_accounts", "maxSelect": 1 } },
+      { "name": "type", "type": "select", "options": { "values": ["sale", "purchase", "salary", "expense", "maintenance", "fuel", "repair", "other"] } },
+      { "name": "transaction_category", "type": "select", "options": { "values": ["operational", "payroll", "capital", "adjustment", "owner_withdrawal"] } },
+      { "name": "party_type", "type": "select", "options": { "values": ["client", "vendor", "worker", "asset", "other"] } },
+      { "name": "client_id", "type": "relation", "options": { "collectionId": "clients", "maxSelect": 1 } },
+      { "name": "vendor_id", "type": "relation", "options": { "collectionId": "vendors", "maxSelect": 1 } },
+      { "name": "worker_id", "type": "relation", "options": { "collectionId": "workers", "maxSelect": 1 } },
+      { "name": "car_id", "type": "relation", "options": { "collectionId": "cars", "maxSelect": 1 } },
+      { "name": "equipment_id", "type": "relation", "options": { "collectionId": "equipment", "maxSelect": 1 } },
+      { "name": "amount", "type": "number", "required": true },
+      { "name": "transaction_date", "type": "date", "required": true },
+      { "name": "business_date", "type": "date", "required": true },
+      { "name": "status", "type": "select", "options": { "values": ["posted", "reversed"] }, "default": "posted" },
+      { "name": "transaction_source", "type": "select", "options": { "values": ["sales_order", "purchase_order", "payroll", "expense", "manual", "adjustment", "system"] } },
+      { "name": "payment_status", "type": "select", "options": { "values": ["paid", "partial", "later"] } },
+      { "name": "direction", "type": "select", "options": { "values": ["in", "out"] } },
+      { "name": "affects_cashflow", "type": "bool", "default": true },
+      { "name": "is_reversal", "type": "bool", "default": false },
+      { "name": "reversal_of", "type": "relation", "options": { "collectionId": "transactions", "maxSelect": 1 } },
+      { "name": "is_locked", "type": "bool", "default": false },
+      { "name": "reference_number", "type": "text", "unique": true },
+      { "name": "reference_collection", "type": "text" },
+      { "name": "reference_id", "type": "text" },
+      { "name": "sync_id", "type": "text", "unique": true },
+      { "name": "notes", "type": "text" },
+      { "name": "created_by", "type": "relation", "options": { "collectionId": "users", "maxSelect": 1 } }
+    ],
+    "indexes": [
+      "CREATE UNIQUE INDEX idx_transactions_number ON transactions (transaction_number)",
+      "CREATE INDEX idx_transactions_date ON transactions (transaction_date)",
+      "CREATE INDEX idx_transactions_type ON transactions (type)",
+      "CREATE INDEX idx_transactions_party ON transactions (party_type)"
+    ]
+  },
+  {
+    "name": "payments",
+    "type": "base",
+    "system": false,
+    "schema": [
+      { "name": "account_id", "type": "relation", "options": { "collectionId": "financial_accounts", "maxSelect": 1 } },
+      { "name": "client_id", "type": "relation", "options": { "collectionId": "clients", "maxSelect": 1 } },
+      { "name": "vendor_id", "type": "relation", "options": { "collectionId": "vendors", "maxSelect": 1 } },
+      { "name": "worker_id", "type": "relation", "options": { "collectionId": "workers", "maxSelect": 1 } },
+      { "name": "amount", "type": "number", "required": true },
+      { "name": "unallocated_amount", "type": "number", "default": 0 },
+      { "name": "direction", "type": "select", "required": true, "options": { "values": ["in", "out"] } },
+      { "name": "status", "type": "select", "options": { "values": ["pending", "confirmed", "cancelled"] }, "default": "confirmed" },
+      { "name": "payment_date", "type": "date", "required": true },
+      { "name": "payment_method", "type": "select", "options": { "values": ["cash", "bank", "credit", "other"] } },
+      { "name": "reference_number", "type": "text" },
+      { "name": "sync_id", "type": "text", "unique": true },
+      { "name": "notes", "type": "text" }
+    ],
+    "indexes": [
+      "CREATE INDEX idx_payments_client ON payments (client_id)",
+      "CREATE INDEX idx_payments_vendor ON payments (vendor_id)",
+      "CREATE INDEX idx_payments_worker ON payments (worker_id)"
+    ]
+  },
+  {
+    "name": "payment_allocations",
+    "type": "base",
+    "system": false,
+    "schema": [
+      { "name": "payment_id", "type": "relation", "options": { "collectionId": "payments", "maxSelect": 1 } },
+      { "name": "transaction_id", "type": "relation", "options": { "collectionId": "transactions", "maxSelect": 1 } },
+      { "name": "allocated_amount", "type": "number", "required": true },
+      { "name": "allocated_at", "type": "date", "required": true }
+    ],
+    "indexes": [
+      "CREATE INDEX idx_payment_allocations_payment ON payment_allocations (payment_id)",
+      "CREATE INDEX idx_payment_allocations_transaction ON payment_allocations (transaction_id)"
+    ]
+  },
+  {
+    "name": "workers",
+    "type": "base",
+    "system": false,
+    "schema": [
+      { "name": "name", "type": "text", "required": true },
+      { "name": "phone", "type": "text" },
+      { "name": "emergency_phone", "type": "text" },
+      { "name": "national_id", "type": "text" },
+      { "name": "address", "type": "text" },
+      { "name": "job_title", "type": "text" },
+      { "name": "base_salary", "type": "number", "required": true },
+      { "name": "cached_balance", "type": "number", "default": 0 },
+      { "name": "employment_status", "type": "select", "required": true, "options": { "values": ["active", "vacation", "suspended", "resigned"] }, "default": "active" },
+      { "name": "start_date", "type": "date" },
+      { "name": "photo", "type": "file", "options": { "maxSelect": 1, "mimeTypes": ["image/jpeg", "image/png"] } },
+      { "name": "is_archived", "type": "bool", "default": false },
+      { "name": "created_by", "type": "relation", "options": { "collectionId": "users", "maxSelect": 1 } }
+    ]
+  },
+  {
+    "name": "attendance",
+    "type": "base",
+    "system": false,
+    "schema": [
+      { "name": "worker_id", "type": "relation", "options": { "collectionId": "workers", "maxSelect": 1 } },
+      { "name": "date", "type": "date", "required": true },
+      { "name": "status", "type": "select", "options": { "values": ["present", "absent", "late", "leave", "half_day"] } },
+      { "name": "shift", "type": "select", "options": { "values": ["morning", "evening"] }, "default": "morning" },
+      { "name": "check_in_datetime", "type": "date" },
+      { "name": "check_out_datetime", "type": "date" },
+      { "name": "absence_reason", "type": "text" },
+      { "name": "notes", "type": "text" },
+      { "name": "recorded_by", "type": "relation", "options": { "collectionId": "users", "maxSelect": 1 } }
+    ],
+    "indexes": ["CREATE UNIQUE INDEX idx_worker_date_shift ON attendance (worker_id, date, shift)"]
+  },
+  {
+    "name": "salary_adjustments",
+    "type": "base",
+    "system": false,
+    "schema": [
+      { "name": "worker_id", "type": "relation", "options": { "collectionId": "workers", "maxSelect": 1 } },
+      { "name": "type", "type": "select", "options": { "values": ["bonus", "deduction", "gift", "penalty"] } },
+      { "name": "amount", "type": "number", "required": true },
+      { "name": "reason", "type": "text" },
+      { "name": "date", "type": "date", "required": true },
+      { "name": "created_by", "type": "relation", "options": { "collectionId": "users", "maxSelect": 1 } }
+    ]
+  },
+  {
+    "name": "payroll_records",
+    "type": "base",
+    "system": false,
+    "schema": [
+      { "name": "worker_id", "type": "relation", "options": { "collectionId": "workers", "maxSelect": 1 } },
+      { "name": "transaction_id", "type": "relation", "options": { "collectionId": "transactions", "maxSelect": 1 } },
+      { "name": "month", "type": "number", "required": true },
+      { "name": "year", "type": "number", "required": true },
+      { "name": "base_salary", "type": "number", "required": true },
+      { "name": "bonuses", "type": "number", "default": 0 },
+      { "name": "deductions", "type": "number", "default": 0 },
+      { "name": "gifts", "type": "number", "default": 0 },
+      { "name": "penalties", "type": "number", "default": 0 },
+      { "name": "absence_days", "type": "number", "default": 0 },
+      { "name": "net_salary", "type": "number", "required": true },
+      { "name": "payment_status", "type": "select", "options": { "values": ["paid", "pending"] } },
+      { "name": "status", "type": "select", "options": { "values": ["draft", "approved", "paid", "cancelled"] }, "default": "draft" },
+      { "name": "business_date", "type": "date" },
+      { "name": "reference_number", "type": "text", "unique": true },
+      { "name": "is_locked", "type": "bool", "default": false },
+      { "name": "locked_at", "type": "date" },
+      { "name": "locked_by", "type": "relation", "options": { "collectionId": "users", "maxSelect": 1 } },
+      { "name": "attendance_snapshot", "type": "json" },
+      { "name": "adjustments_snapshot", "type": "json" }
+    ],
+    "indexes": ["CREATE UNIQUE INDEX idx_worker_salary_month ON payroll_records (worker_id, month, year)"]
+  },
+  {
+    "name": "cars",
+    "type": "base",
+    "system": false,
+    "schema": [
+      { "name": "plate_number", "type": "text", "required": true },
+      { "name": "model", "type": "text" },
+      { "name": "purchase_date", "type": "date" },
+      { "name": "purchase_price", "type": "number", "default": 0 },
+      { "name": "driver_id", "type": "relation", "options": { "collectionId": "workers", "maxSelect": 1 } },
+      { "name": "status", "type": "select", "options": { "values": ["active", "maintenance", "out_of_service"] } },
+      { "name": "notes", "type": "text" },
+      { "name": "is_archived", "type": "bool", "default": false },
+      { "name": "created_by", "type": "relation", "options": { "collectionId": "users", "maxSelect": 1 } }
+    ],
+    "indexes": ["CREATE UNIQUE INDEX idx_cars_plate ON cars (plate_number)"]
+  },
+  {
+    "name": "deliveries",
+    "type": "base",
+    "system": false,
+    "schema": [
+      { "name": "sales_order_id", "type": "relation", "options": { "collectionId": "sales_orders", "maxSelect": 1 } },
+      { "name": "car_id", "type": "relation", "options": { "collectionId": "cars", "maxSelect": 1 } },
+      { "name": "driver_id", "type": "relation", "options": { "collectionId": "workers", "maxSelect": 1 } },
+      { "name": "delivery_date", "type": "date", "required": true },
+      { "name": "status", "type": "select", "options": { "values": ["pending", "in_progress", "delivered", "cancelled"] } },
+      { "name": "notes", "type": "text" },
+      { "name": "created_by", "type": "relation", "options": { "collectionId": "users", "maxSelect": 1 } }
+    ]
+  },
+  {
+    "name": "car_expenses",
+    "type": "base",
+    "system": false,
+    "schema": [
+      { "name": "car_id", "type": "relation", "options": { "collectionId": "cars", "maxSelect": 1 } },
+      { "name": "transaction_id", "type": "relation", "options": { "collectionId": "transactions", "maxSelect": 1 } },
+      { "name": "expense_type", "type": "select", "options": { "values": ["fuel", "maintenance", "repair", "other"] } },
+      { "name": "amount", "type": "number", "required": true },
+      { "name": "date", "type": "date", "required": true },
+      { "name": "details", "type": "text" }
+    ],
+    "indexes": ["CREATE INDEX idx_car_expenses_car ON car_expenses (car_id)"]
+  },
+  {
+    "name": "equipment",
+    "type": "base",
+    "system": false,
+    "schema": [
+      { "name": "name", "type": "text", "required": true },
+      { "name": "purchase_date", "type": "date" },
+      { "name": "purchase_price", "type": "number", "default": 0 },
+      { "name": "condition", "type": "text" },
+      { "name": "status", "type": "select", "options": { "values": ["active", "maintenance", "out_of_service"] } },
+      { "name": "notes", "type": "text" },
+      { "name": "is_archived", "type": "bool", "default": false },
+      { "name": "created_by", "type": "relation", "options": { "collectionId": "users", "maxSelect": 1 } }
+    ]
+  },
+  {
+    "name": "equipment_maintenance",
+    "type": "base",
+    "system": false,
+    "schema": [
+      { "name": "equipment_id", "type": "relation", "options": { "collectionId": "equipment", "maxSelect": 1 } },
+      { "name": "transaction_id", "type": "relation", "options": { "collectionId": "transactions", "maxSelect": 1 } },
+      { "name": "maintenance_date", "type": "date", "required": true },
+      { "name": "cost", "type": "number", "required": true },
+      { "name": "downtime_hours", "type": "number" },
+      { "name": "details", "type": "text" }
+    ],
+    "indexes": ["CREATE INDEX idx_equipment_maintenance_equipment ON equipment_maintenance (equipment_id)"]
+  },
+  {
+    "name": "expenses",
+    "type": "base",
+    "system": false,
+    "schema": [
+      { "name": "transaction_id", "type": "relation", "options": { "collectionId": "transactions", "maxSelect": 1 } },
+      { "name": "category", "type": "select", "options": { "values": ["rent", "electricity", "water", "gas", "taxes", "internet", "misc"] } },
+      { "name": "amount", "type": "number", "required": true },
+      { "name": "date", "type": "date", "required": true },
+      { "name": "details", "type": "text" },
+      { "name": "created_by", "type": "relation", "options": { "collectionId": "users", "maxSelect": 1 } }
+    ]
+  },
+  {
+    "name": "system_settings",
+    "type": "base",
+    "system": false,
+    "schema": [
+      { "name": "key", "type": "text", "required": true, "unique": true },
+      { "name": "value", "type": "text", "required": true },
+      { "name": "description", "type": "text" }
+    ]
+  },
+  {
+    "name": "notifications",
+    "type": "base",
+    "system": false,
+    "schema": [
+      { "name": "user_id", "type": "relation", "options": { "collectionId": "users", "maxSelect": 1 } },
+      { "name": "title", "type": "text", "required": true },
+      { "name": "message", "type": "text", "required": true },
+      { "name": "type", "type": "select", "options": { "values": ["stock_alert", "expiration_alert", "salary_alert", "payment_alert", "system_alert"] } },
+      { "name": "priority", "type": "select", "options": { "values": ["low", "medium", "high", "critical"] } },
+      { "name": "related_collection", "type": "text" },
+      { "name": "related_record", "type": "text" },
+      { "name": "is_read", "type": "bool", "default": false },
+      { "name": "read_at", "type": "date" }
+    ],
+    "indexes": ["CREATE INDEX idx_notifications_user ON notifications (user_id)"]
+  },
+  {
+    "name": "analytics_cache",
+    "type": "base",
+    "system": false,
+    "schema": [
+      { "name": "date", "type": "date", "required": true },
+      { "name": "period_type", "type": "select", "options": { "values": ["daily", "weekly", "monthly", "yearly"] } },
+      { "name": "sales", "type": "number", "default": 0 },
+      { "name": "expenses", "type": "number", "default": 0 },
+      { "name": "profit", "type": "number", "default": 0 },
+      { "name": "inventory_value", "type": "number", "default": 0 },
+      { "name": "receivables", "type": "number", "default": 0 },
+      { "name": "payables", "type": "number", "default": 0 },
+      { "name": "is_finalized", "type": "bool", "default": false },
+      { "name": "last_generated_at", "type": "date" },
+      { "name": "data", "type": "json" }
+    ],
+    "indexes": ["CREATE UNIQUE INDEX idx_analytics_period ON analytics_cache (date, period_type)"]
+  }
+]
