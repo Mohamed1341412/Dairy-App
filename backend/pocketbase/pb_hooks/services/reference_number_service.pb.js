@@ -10,10 +10,11 @@ const ReferenceNumberService = {
    * @param {string} prefix - e.g., 'SO', 'PO', 'TR'
    */
   generate: (prefix) => {
-    const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-    const random = Math.floor(1000 + Math.random() * 9000); // 4 random digits
+    const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+    // Generate a much longer random string (e.g., 10 alphanumeric characters)
+    const random = Math.random().toString(36).substring(2, 12).toUpperCase();
     return `${prefix}-${date}-${random}`;
-  }
+  },
 };
 
 module.exports = ReferenceNumberService;
