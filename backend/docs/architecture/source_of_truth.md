@@ -144,6 +144,15 @@ Audit logs are historical truth.
 
 ---
 
+### Ledger Rebuild & Replay Rule
+
+1. **Absolute Ordering**: Ledger entries MUST NEVER be ordered by `created`, `business_date`, or `transaction_date` during a rebuild. These fields can be modified, backdated, or arrive out-of-order during Offline Sync.
+2. **The Only Truth**: The ONLY acceptable ordering for replaying ledger entries to reconstruct `cached_balance` is by the immutable integer field `posting_sequence` (ASC).
+3. **Sequence Generation**: The `posting_sequence` is generated globally via `system_settings` inside a Database Transaction. It is strictly monotonically increasing and immutable once saved.
+4. **Reversal Handling**: When rebuilding, entries where `is_reversal = true` are treated as normal mathematical offsets. The system does not "delete" the original entry; it mathematically neutralizes it via the reversal entry's `posting_sequence`.
+
+---
+
 ## Ownership Summary
 
 | Domain | Source of Truth | Owner |
