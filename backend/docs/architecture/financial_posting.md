@@ -1,0 +1,41 @@
+# Financial Posting Architecture
+
+**Purpose:** Ensures that all financial records (transactions, ledgers) are created consistently through a central engine.
+
+---
+
+## Rule
+- `sales_hooks`, `purchase_hooks`, `payroll_hooks`, `expense_hooks`, etc. may **ONLY** create `transactions`.
+- They must **NEVER** create `client_ledgers`, `vendor_ledgers`, or `financial_account_ledgers` directly.
+- `finance_hooks` is the **sole owner** of ledger creation.
+- `finance_hooks` MUST be idempotent.
+- All generated ledgers must inherit the originating transaction `event_key`.
+
+## Flow
+
+Any Hook (Sales, Purchase, Payroll, etc.)
+↓
+Create Transaction (with party_type, amount, direction, reference)
+↓
+finance_hooks (onRecordAfterCreate for transactions)
+↓
+Create Ledger Entries:
+
+client_ledgers (if party_type = 'client')
+
+vendor_ledgers (if party_type = 'vendor')
+
+worker_ledgers (if party_type = 'worker')
+
+financial_account_ledgers (if affects_cashflow = true)
+↓
+Update cached_balance in clients/vendors/workers/financial_accounts
+
+
+## `transaction` Status Rules
+- Most transactions (`sale`, `purchase`) are created as `posted` directly.
+- `payroll` and `manual expense` may use `draft` initially, then transition to `posted` on approval.
+
+## Payment Status
+- `transactions.payment_status` is managed **only** by `payment_hooks` when payments are confirmed.
+- Values: `unpaid`, `partial`, `paid`.
