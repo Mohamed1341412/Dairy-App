@@ -1,141 +1,116 @@
 // pb_hooks/hooks/inventory/inventory_hooks.pb.js
-
-const { Collections, MovementTypes, MovementDirections } = require(
-  `${__hooks}/core/collections.pb.js`,
-);
-const Helpers = require(`${__hooks}/utils/helpers.pb.js`);
-const StockService = require(`${__hooks}/services/stock_service.pb.js`);
-
-// إضافات الـ Audit
 const { AuditActions } = require(`${__hooks}/core/audit_actions.pb.js`);
 const { OperationTypes } = require(`${__hooks}/core/operation_types.pb.js`);
 const AuditService = require(`${__hooks}/services/audit_service.pb.js`);
 
-/**
- * 1. Prevent direct stock editing for Products and Raw Materials.
- * Stock must only be updated via movements.
- */
-const stockProtectedCollections = [Collections.PRODUCTS, Collections.MATERIALS];
-
-// Internal DAO updates from StockService are allowed.
-// Only HTTP/API requests are blocked.
-stockProtectedCollections.forEach((collectionName) => {
-  onRecordBeforeUpdateRequest((e) => {
-    if (!e.requestInfo) {
-      return e.next();
-    }
-
-    const protectedFields = [
-      "current_stock",
-      "reserved_stock",
-      "available_stock",
-    ];
-    protectedFields.forEach((field) => {
-      Helpers.ensureFieldNotModified(
-        e,
-        field,
-        `Direct editing of ${field} is prohibited.`,
-      );
-    });
-
-    return e.next();
-  }, collectionName);
-});
-
-/**
- * Audit: تسجيل إنشاء منتج
- */
+// ==========================================
+// 0. PRODUCTS: Audit Creation (Initial State)
+// ==========================================
 onRecordAfterCreateRequest((e) => {
   AuditService.log({
     userId: AuditService.getUserId(e),
     action: AuditActions.PRODUCT_CREATED,
     operationType: OperationTypes.CREATE,
-    collectionName: Collections.PRODUCTS,
+    collectionName: "products",
     recordId: e.record.id,
+    // ✅ Capture the initial financial and operational state
+    newData: {
+      name: e.record.get("name"),
+      selling_price: e.record.get("selling_price"),
+      cost_price: e.record.get("cost_price"),
+      is_active: e.record.get("is_active"),
+    },
   });
-  return e.next();
-}, Collections.PRODUCTS);
+}, "products");
 
-/**
- * Audit: تسجيل أرشفة/استعادة منتج
- */
+// ==========================================
+// 1. PRODUCTS: Audit Master Data Changes
+// ==========================================
 onRecordAfterUpdateRequest((e) => {
-  let oldRecord = e.oldRecord || e.record.original?.();
-  if (!oldRecord) return e.next();
+  const oldRecord = e.oldRecord;
+  if (!oldRecord) return;
 
-  const oldArchived = oldRecord.get("is_archived");
-  const newArchived = e.record.get("is_archived");
-  if (oldArchived !== newArchived) {
-    const action = newArchived
-      ? AuditActions.PRODUCT_ARCHIVED
-      : AuditActions.PRODUCT_RESTORED;
-    const opType = newArchived
-      ? OperationTypes.ARCHIVE
-      : OperationTypes.RESTORE;
+  const userId = AuditService.getUserId(e);
+  const recordId = e.record.id;
+
+  // A. Audit Price Changes (Financial Impact)
+  const oldPrices = {};
+  const newPrices = {};
+
+  if (oldRecord.get("selling_price") !== e.record.get("selling_price")) {
+    oldPrices.selling_price = oldRecord.get("selling_price");
+    newPrices.selling_price = e.record.get("selling_price");
+  }
+  if (oldRecord.get("cost_price") !== e.record.get("cost_price")) {
+    oldPrices.cost_price = oldRecord.get("cost_price");
+    newPrices.cost_price = e.record.get("cost_price");
+  }
+
+  if (Object.keys(oldPrices).length > 0) {
     AuditService.log({
-      userId: AuditService.getUserId(e),
-      action,
-      operationType: opType,
-      collectionName: Collections.PRODUCTS,
-      recordId: e.record.id,
+      userId: userId,
+      action: AuditActions.PRODUCT_PRICE_CHANGED,
+      operationType: OperationTypes.UPDATE,
+      collectionName: "products",
+      recordId: recordId,
+      oldData: oldPrices,
+      newData: newPrices,
     });
   }
-  return e.next();
-}, Collections.PRODUCTS);
 
-/**
- * 2. Inventory Movement Logic
- */
-onRecordBeforeCreateRequest((e) => {
-  const productId = e.record.get("product_id");
-  const qty = e.record.getFloat("quantity");
-  const type = e.record.get("movement_type");
-  const direction = e.record.get("direction");
-
-  // 2.1 Validate Quantity
-  if (qty <= 0) {
-    throw new BadRequestError("Movement quantity must be greater than zero.");
+  // B. Audit Lifecycle (Active / Inactive)
+  if (oldRecord.get("is_active") !== e.record.get("is_active")) {
+    const isActive = e.record.get("is_active");
+    AuditService.log({
+      userId: userId,
+      action: isActive
+        ? AuditActions.PRODUCT_ACTIVATED
+        : AuditActions.PRODUCT_DEACTIVATED,
+      operationType: OperationTypes.UPDATE,
+      collectionName: "products",
+      recordId: recordId,
+      oldData: { is_active: oldRecord.get("is_active") },
+      newData: { is_active: isActive },
+    });
   }
 
-  // 2.2 Validate Movement Type & Direction
-  const validTypes = Object.values(MovementTypes);
-  if (!validTypes.includes(type)) {
-    throw new BadRequestError(`Invalid movement type: ${type}.`);
+  // C. Audit Soft Delete / Restore
+  if (oldRecord.get("is_archived") !== e.record.get("is_archived")) {
+    const isArchived = e.record.get("is_archived");
+    AuditService.log({
+      userId: userId,
+      action: isArchived
+        ? AuditActions.PRODUCT_ARCHIVED
+        : AuditActions.PRODUCT_RESTORED,
+      operationType: isArchived
+        ? OperationTypes.ARCHIVE
+        : OperationTypes.RESTORE,
+      collectionName: "products",
+      recordId: recordId,
+      oldData: { is_archived: oldRecord.get("is_archived") },
+      newData: { is_archived: isArchived },
+    });
   }
-  if (!Object.values(MovementDirections).includes(direction)) {
-    throw new BadRequestError(`Invalid movement direction: ${direction}.`);
-  }
+}, "products");
 
-  // 2.3 Type ↔ Direction Enforcement
-  const typeDirectionMap = {
-    [MovementTypes.PRODUCTION]: MovementDirections.IN,
-    [MovementTypes.SALE]: MovementDirections.OUT,
-    [MovementTypes.RETURN]: MovementDirections.IN,
-    [MovementTypes.WASTE]: MovementDirections.OUT,
-    // ADJUSTMENT can be IN or OUT
-  };
-
-  if (type !== MovementTypes.ADJUSTMENT) {
-    const expectedDirection = typeDirectionMap[type];
-    if (direction !== expectedDirection) {
-      throw new BadRequestError(
-        `Invalid direction '${direction}' for movement type '${type}'. Expected '${expectedDirection}'.`,
-      );
-    }
-  }
-
-  // 2.4 Validate Negative Stock for OUT movements
-  if (direction === MovementDirections.OUT) {
-    StockService.validateNegativeStock(productId, qty);
-  }
-
-  return e.next();
-}, Collections.INVENTORY_MOVEMENTS);
-
-/**
- * 3. Post-Movement Stock Update
- */
+// ==========================================
+// 2. INVENTORY MOVEMENTS: Audit Source of Truth
+// ==========================================
 onRecordAfterCreateRequest((e) => {
-  StockService.incrementalUpdate(e.record);
-  return e.next();
-}, Collections.INVENTORY_MOVEMENTS);
+  // Movements are the actual source of truth for stock changes.
+  // We audit the creation of the movement, NOT the cached stock fields on the product.
+  AuditService.log({
+    userId: AuditService.getUserId(e),
+    action: AuditActions.INVENTORY_MOVEMENT_CREATED,
+    operationType: OperationTypes.CREATE,
+    collectionName: "inventory_movements",
+    recordId: e.record.id,
+    newData: {
+      product_id: e.record.get("product_id"),
+      direction: e.record.get("direction"),
+      quantity: e.record.get("quantity"),
+      movement_type: e.record.get("movement_type"),
+      reference_number: e.record.get("reference_number"),
+    },
+  });
+}, "inventory_movements");
