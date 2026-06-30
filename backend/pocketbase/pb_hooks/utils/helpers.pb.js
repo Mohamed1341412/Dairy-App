@@ -1,6 +1,7 @@
 // pb_hooks/utils/helpers.pb.js
 
-const AuditLogger = require(`${__hooks}/services/audit_logger.pb.js`);
+const AuditService = require(`${__hooks}/services/audit_service.pb.js`);
+const { OperationTypes } = require(`${__hooks}/core/operation_types.pb.js`);
 
 const Helpers = {
   /**
@@ -22,10 +23,10 @@ const Helpers = {
   isFieldModified: (e, fieldName) => {
     // If it's a new record, any non-null field is "modified"
     if (!e.record.id) return e.record.get(fieldName) !== null;
-    
+
     const original = Helpers.getOriginalRecord(e);
     if (!original) return false;
-    
+
     return original.get(fieldName) !== e.record.get(fieldName);
   },
 
@@ -34,14 +35,15 @@ const Helpers = {
    */
   ensureFieldNotModified: (e, fieldName, message) => {
     if (Helpers.isFieldModified(e, fieldName)) {
-      const errorMsg = message || `Direct editing of ${fieldName} is prohibited.`;
-      
-      AuditLogger.log({
-        action: 'FIELD_UPDATE_BLOCKED',
-        collection: e.collection.name,
-        recordId: e.record.id,
+      const errorMsg =
+        message || `Direct editing of ${fieldName} is prohibited.`;
+
+      AuditService.log({
         userId: e.auth?.id,
-        details: { field: fieldName, attemptedValue: e.record.get(fieldName) }
+        action: "IMMUTABLE_COLLECTION_UPDATE_BLOCKED",
+        operationType: OperationTypes.PERMISSION,
+        collectionName: e.collection.name,
+        recordId: e.record.id,
       });
 
       throw new BadRequestError(errorMsg);
@@ -53,13 +55,13 @@ const Helpers = {
    */
   canBypass: (e) => {
     // Check if user is super admin
-    if (e.auth?.get('role') === 'super_admin') return true;
-    
+    if (e.auth?.get("role") === "super_admin") return true;
+
     // Check if request is from system context (internal)
-    if (e.requestInfo?.context === 'system') return true;
-    
+    if (e.requestInfo?.context === "system") return true;
+
     return false;
-  }
+  },
 };
 
 module.exports = Helpers;

@@ -1,7 +1,8 @@
 // pb_hooks/utils/guards.pb.js
 
 const Helpers = require(`${__hooks}/utils/helpers.pb.js`);
-const AuditLogger = require(`${__hooks}/services/audit_logger.pb.js`);
+const AuditService = require(`${__hooks}/services/audit_service.pb.js`);
+const { OperationTypes } = require(`${__hooks}/core/operation_types.pb.js`);
 
 const Guards = {
   /**
@@ -10,12 +11,13 @@ const Guards = {
   lockGuard: (e) => {
     if (Helpers.canBypass(e)) return;
 
-    if (e.record.get('is_locked') === true) {
-      AuditLogger.log({
-        action: 'LOCKED_RECORD_MODIFICATION_BLOCKED',
-        collection: e.collection.name,
+    if (e.record.get("is_locked") === true) {
+      AuditService.log({
+        userId: e.auth?.id,
+        action: "IMMUTABLE_COLLECTION_UPDATE_BLOCKED",
+        operationType: OperationTypes.PERMISSION,
+        collectionName: e.collection.name,
         recordId: e.record.id,
-        userId: e.auth?.id
       });
       throw new BadRequestError("Record is locked. Cannot update or delete.");
     }
@@ -25,14 +27,16 @@ const Guards = {
    * Guard against any updates on immutable collections.
    */
   immutabilityGuard: (e, options = {}) => {
-    const message = options.reason || "Financial records are immutable. Create a reversal transaction instead.";
+    const message =
+      options.reason ||
+      "Financial records are immutable. Create a reversal transaction instead.";
 
-    AuditLogger.log({
-      action: 'IMMUTABLE_COLLECTION_UPDATE_BLOCKED',
-      collection: e.collection.name,
-      recordId: e.record.id,
+    AuditService.log({
       userId: e.auth?.id,
-      details: { reason: message }
+      action: "IMMUTABLE_COLLECTION_UPDATE_BLOCKED",
+      operationType: OperationTypes.PERMISSION,
+      collectionName: e.collection.name,
+      recordId: e.record.id,
     });
 
     throw new BadRequestError(message);
@@ -46,16 +50,18 @@ const Guards = {
     // Only allow bypass if NOT strict and user has bypass rights
     if (!isStrict && Helpers.canBypass(e)) return;
 
-    AuditLogger.log({
-      action: 'DELETION_BLOCKED',
-      collection: e.collection.name,
-      recordId: e.record.id,
+    AuditService.log({
       userId: e.auth?.id,
-      details: { strict: isStrict }
+      action: "IMMUTABLE_COLLECTION_UPDATE_BLOCKED",
+      operationType: OperationTypes.PERMISSION,
+      collectionName: e.collection.name,
+      recordId: e.record.id,
     });
 
-    throw new BadRequestError("Physical deletion is strictly prohibited for this record. Use archiving instead.");
-  }
+    throw new BadRequestError(
+      "Physical deletion is strictly prohibited for this record. Use archiving instead.",
+    );
+  },
 };
 
 module.exports = Guards;
