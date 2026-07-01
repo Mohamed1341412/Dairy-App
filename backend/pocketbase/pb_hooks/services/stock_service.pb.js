@@ -76,14 +76,14 @@ const StockService = {
     try {
       product = $app.dao().findRecordById(Collections.PRODUCTS, productId);
     } catch (err) {
-      throw new BadRequestError(
+      throw new Error(
         `Stock validation failed: Product with ID '${productId}' not found.`,
       );
     }
 
     const available = product.getFloat("available_stock");
     if (available < requestedQty) {
-      throw new BadRequestError(
+      throw new Error(
         `Insufficient stock for product: '${product.get("name")}'. Available: ${available}, Requested: ${requestedQty}.`,
       );
     }
