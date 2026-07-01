@@ -25,7 +25,7 @@ const AuditService = {
       const logsCollection = $app
         .dao()
         .findCollectionByNameOrId("activity_logs");
-      const record = new Record(logsCollection);
+      const record = new $classes.Record(logsCollection);
       record.set("user_id", userId);
       record.set("action", action);
       record.set("operation_type", operationType);
