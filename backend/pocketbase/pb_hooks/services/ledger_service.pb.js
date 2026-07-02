@@ -1,14 +1,117 @@
 // pb_hooks/services/ledger_service.pb.js
 
 /**
- * LedgerService - The Blind Financial Posting Engine (v10/10 Final)
+ * LedgerService - The Blind Financial Posting Engine (Final v10/10)
  *
- * - محرك أعمى لا يعرف تفاصيل الأعمال.
- * - يضمن الترتيب الزمني المطلق عبر posting_sequence.
- * - محمي ضد الترحيل المزدوج عبر UNIQUE(transaction_id, entry_type).
+ * ⚠️ القواعد الذهبية:
+ * 1. هذا الـ Service لا يفتح Transactions بنفسه.
+ * 2. لا يقوم بأي اشتقاق ذكي (No Magic). يتلقى الأوامر صريحة من الـ Domain Hooks.
+ * 3. يفشل فوراً (Fail-Fast) إذا تم استدعاؤه في حالة غير صحيحة.
  */
 
 const LedgerService = {
+  // ==========================================
+  // 1. MAIN ORCHESTRATOR (The Entry Point)
+  // ==========================================
+
+  /**
+   * تقوم بترجمة سجل transaction عام إلى قيود دفترية فعلية.
+   * ⚠️ يجب استدعاؤها داخل runInTransaction من قِبَل الـ Domain Hook.
+   *
+   * @param {Object} dao - الـ Transaction DAO.
+   * @param {Record} tx - سجل المعاملة.
+   * @param {string} entryType - نوع القيد الدفتري (يُمرر صراحة من الـ Hook).
+   * @param {Object} reference - المراجع المهيكلة {type, id, number}.
+   */
+  projectTransaction: function (dao, tx, entryType, reference) {
+    // ✅ Fail-Fast: الصمت في الأنظمة المالية جريمة.
+    if (tx.get("status") !== "posted") {
+      throw new Error(
+        "Critical: Only posted transactions may be projected to ledgers.",
+      );
+    }
+
+    const amount = tx.getFloat("amount");
+    if (amount <= 0) return; // لا توجد حركة مالية
+
+    const direction = tx.get("direction");
+    const partyType = tx.get("party_type");
+    const accountId = tx.get("account_id");
+    const affectsCashflow = tx.get("affects_cashflow");
+
+    const txId = tx.id;
+    const entryDate = tx.get("business_date") || tx.get("transaction_date");
+
+    // ✅ 1. معالجة حركة الخزينة/البنك (Cashflow)
+    if (affectsCashflow && accountId) {
+      if (direction === "in") {
+        this.postAccountDebit(
+          dao,
+          accountId,
+          txId,
+          amount,
+          entryDate,
+          entryType,
+          reference,
+        );
+      } else {
+        this.postAccountCredit(
+          dao,
+          accountId,
+          txId,
+          amount,
+          entryDate,
+          entryType,
+          reference,
+        );
+      }
+    }
+
+    // ✅ 2. معالجة ذمم الأطراف (Clients, Vendors, Workers)
+    if (partyType === "client") {
+      const clientId = tx.get("client_id");
+      if (!clientId) throw new Error("Client transaction missing client_id.");
+      if (direction === "in")
+        this.postClientCredit(
+          dao,
+          clientId,
+          txId,
+          amount,
+          entryType,
+          reference,
+        );
+      else
+        this.postClientDebit(dao, clientId, txId, amount, entryType, reference);
+    } else if (partyType === "vendor") {
+      const vendorId = tx.get("vendor_id");
+      if (!vendorId) throw new Error("Vendor transaction missing vendor_id.");
+      if (direction === "out")
+        this.postVendorDebit(dao, vendorId, txId, amount, entryType, reference);
+      else
+        this.postVendorCredit(
+          dao,
+          vendorId,
+          txId,
+          amount,
+          entryType,
+          reference,
+        );
+    } else if (partyType === "worker") {
+      const workerId = tx.get("worker_id");
+      if (!workerId) throw new Error("Worker transaction missing worker_id.");
+      if (direction === "out")
+        this.postWorkerDebit(dao, workerId, txId, amount, entryType, reference);
+      else
+        this.postWorkerCredit(
+          dao,
+          workerId,
+          txId,
+          amount,
+          entryType,
+          reference,
+        );
+    }
+  },
   // ==========================================
   // 1. CLIENT LEDGERS
   // ==========================================
