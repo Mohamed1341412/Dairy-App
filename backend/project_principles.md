@@ -307,6 +307,10 @@ Auditability is more important than convenience.
 
 Inventory movements are the source of truth.
 
+Physical stock changes only through inventory movements.
+
+Reservation changes only through StockService reservation methods.
+
 Stock fields are cached projections.
 
 Never edit directly:
@@ -315,7 +319,7 @@ Never edit directly:
 - reserved_stock
 - available_stock
 
-Stock changes only through movement records.
+StockService maintains all stock projections.
 
 ---
 
