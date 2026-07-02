@@ -32,24 +32,25 @@ Transactions are the source of truth.
 
 # Source:
 
-inventory_movements (Append-only Event Log)
-Projection Engine:
-StockService.applyMovement() maintains:
+- inventory_movements (append-only event log)
+
+Projection Owner:
+
+- StockService
+
+Derived Fields:
 
 - products.current_stock
-- products.available_stock (= current_stock - reserved_stock)
+- products.available_stock
 - product_batches.quantity_remaining
 
-# Projection Owner:
+Rule:
+Inventory movements are the source of truth.
+Stock fields are cached projections maintained by StockService.
 
-StockService (called by Domain Hooks inside runInTransaction)
-
-# Rule:
-
-- Inventory movements are the Source of Truth (Event Sourcing pattern).
-- Stock fields are cached projections maintained by StockService.
-- Domain Hooks own the transaction boundary - they create the movement
-- AND call StockService.applyMovement() atomically.
+Transaction Rule:
+Domain hooks create inventory movements and update projections
+inside the same transaction.
 
 # Correction Strategy:
 
@@ -77,8 +78,7 @@ Material movements are the source of truth.
 
 Source:
 
-- confirmed sales_orders
-- sales_order_items
+- Reservation operations performed through StockService
 
 Projection:
 
@@ -86,13 +86,16 @@ Projection:
 
 Owner:
 
-- StockService.reserveStock() / StockService.releaseReservation()
-  Called by:
-  sales_hooks.pb.js (sole consumer in MVP)
+- StockService
+
+Consumers:
+
+- sales_hooks
+- production_hooks (if production reservations are introduced later)
 
 Rule:
-No other hook may call reserveStock/releaseReservation except
-through StockService. Domain Hooks own the transaction boundary.
+reserved_stock is a cached projection maintained exclusively by StockService.
+It must never be modified directly.
 
 Future:
 Move to inventory_reservations collection in v2.
