@@ -10,10 +10,12 @@ Defines the authoritative owner for every critical business concept in the syste
 ## Financial Truth
 
 Source:
+
 - transactions
 - transaction_lines (if implemented)
 
 Derived:
+
 - client_ledgers
 - vendor_ledgers
 - worker_ledgers
@@ -29,9 +31,11 @@ Transactions are the source of truth.
 ## Product Stock Truth
 
 Source:
+
 - inventory_movements
 
 Derived:
+
 - products.available_stock is derived from:
   - products.current_stock
   - products.reserved_stock
@@ -45,9 +49,11 @@ Stock fields are cached projections.
 ## Material Stock Truth
 
 Source:
+
 - material_movements
 
 Derived:
+
 - materials.current_stock
 
 Rule:
@@ -58,13 +64,16 @@ Material movements are the source of truth.
 ## Reserved Stock Truth (MVP)
 
 Source:
+
 - confirmed sales_orders
 - sales_order_items
 
 Projection:
+
 - products.reserved_stock
 
 Owner:
+
 - sales_hooks.pb.js
 
 Rule:
@@ -78,10 +87,12 @@ Move to inventory_reservations collection in v2.
 ## Payment Truth
 
 Source:
+
 - payments
 - payment_allocations
 
 Derived:
+
 - transactions.payment_status
 - transactions.remaining_amount
 
@@ -90,12 +101,35 @@ payment_hooks.pb.js is the only owner.
 
 ---
 
+### Payment Projections & Allocations
+
+1. **Absolute Source of Truth**: The financial reality of payments is strictly defined by:
+   - `payments` (The total cash/value movement).
+   - `payment_allocations` (The exact mapping of which payment covers which transaction).
+2. **Derived Fields (Projections)**: The following fields in the `transactions` collection are **strictly read-only projections**:
+   - `paid_amount`
+   - `remaining_amount`
+   - `payment_status` (`unpaid`, `partial`, `paid`, `overpaid`)
+3. **Rebuild Rule**: These fields MUST NEVER be edited directly via API or UI. They are automatically recalculated by the `PaymentService.refreshTransactionProjection()` method whenever an allocation is created or deleted.
+4. **Payment Boundaries**: A single `payment` can be allocated across multiple `transactions`. The system enforces that `SUM      (payment_allocations.allocated_amount)` for a single payment never exceeds `payment.amount`.
+
+### Deprecated Projections (UI Convenience Only)
+
+Fields like `sales_orders.payment_status` and `purchase_orders.payment_status` are **strictly deprecated projections**.
+They exist _only_ to simplify Flutter UI list views and avoid complex joins on the frontend.
+The **absolute source of truth** for payment status remains `transactions.payment_status` (derived from `payment_allocations`).
+**Rule:** Never use the order's payment status for financial reporting, ledger generation, or backend logic.
+
+---
+
 ## Attendance Truth
 
 Source:
+
 - attendance
 
 Derived:
+
 - payroll calculations
 - absence reports
 
@@ -107,9 +141,11 @@ Attendance becomes immutable after lock.
 ## Payroll Truth
 
 Source:
+
 - payroll_records
 
 Derived:
+
 - payroll transactions
 - salary reports
 
@@ -121,9 +157,11 @@ Approved payroll creates financial transactions.
 ## Production Truth
 
 Source:
+
 - production_batches
 
 Derived:
+
 - inventory movements
 - material movements
 - product batches
@@ -136,6 +174,7 @@ Production never updates stock directly.
 ## Audit Truth
 
 Source:
+
 - activity_logs
 
 Rule:
@@ -155,16 +194,16 @@ Audit logs are historical truth.
 
 ## Ownership Summary
 
-| Domain | Source of Truth | Owner |
-|----------|----------|----------|
-| Product Stock | inventory_movements | inventory_hooks |
-| Material Stock | material_movements | material_hooks |
-| Reserved Stock | confirmed sales_orders + sales_order_items | sales_hooks |
-| Financial Records | transactions | finance_hooks |
-| Payments | payments + allocations | payment_hooks |
-| Production | production_batches | production_hooks |
-| Attendance | attendance | payroll_hooks |
-| Audit | activity_logs | AuditService |
+| Domain            | Source of Truth                            | Owner            |
+| ----------------- | ------------------------------------------ | ---------------- |
+| Product Stock     | inventory_movements                        | inventory_hooks  |
+| Material Stock    | material_movements                         | material_hooks   |
+| Reserved Stock    | confirmed sales_orders + sales_order_items | sales_hooks      |
+| Financial Records | transactions                               | finance_hooks    |
+| Payments          | payments + allocations                     | payment_hooks    |
+| Production        | production_batches                         | production_hooks |
+| Attendance        | attendance                                 | payroll_hooks    |
+| Audit             | activity_logs                              | AuditService     |
 
 ---
 
