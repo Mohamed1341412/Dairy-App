@@ -22,7 +22,7 @@ const PaymentService = {
    * تخصيص جزء من دفعة لسداد فاتورة.
    */
   allocatePayment: function (dao, paymentId, transactionId, amount) {
-    if (amount <= 0)
+    if (amount <= EPSILON)
       throw new Error("Allocation amount must be greater than zero.");
 
     const payment = dao.findRecordById("payments", paymentId);
