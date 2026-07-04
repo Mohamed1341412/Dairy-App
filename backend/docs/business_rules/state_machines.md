@@ -11,24 +11,24 @@
 
 **Allowed Transitions:**
 
-| From | To | Condition | Notes |
-|------|----|-----------|-------|
-| `draft` | `confirmed` | Stock available | Reservations created, no transaction yet |
-| `draft` | `cancelled` | No payments made | |
-| `confirmed` | `processing` | Always allowed | |
-| `confirmed` | `cancelled` | Not yet delivered | Release reservations |
-| `processing` | `delivered` | Shipment created | **Revenue recognized here** (Transaction created, payment_status = unpaid) |
-| `delivered` | `completed` | Payment fully received | Order closed |
-| `processing` | `cancelled` | Not yet delivered | Reversal of transaction if created |
-| `delivered` | `cancelled` | Admin override | Reversal movements + transaction |
+| From        | To          | Condition              | Notes                                                                  |
+| ----------- | ----------- | ---------------------- | ---------------------------------------------------------------------- |
+| `draft`     | `confirmed` | Stock available        | Reservations created, no transaction yet                               |
+| `draft`     | `cancelled` | No payments made       |
+| `confirmed` | `delivered` | Shipment created       | Revenue recognized here (Transaction created, inventory_movements OUT) |
+| `confirmed` | `cancelled` | Not yet delivered      | Release reservations via StockService.releaseReservation()             |
+| `delivered` | `completed` | Payment fully received | Order closed                                                           |
+| `delivered` | `returned`  | Customer return        | Creates reversal inventory_movements (IN) + reversal transaction       |
 
 **Forbidden Transitions:**
 | From | To | Reason |
 |------|----|--------|
 | `confirmed` | `draft` | Once confirmed, cannot go back |
 | `delivered` | `draft` | Already delivered |
+| `delivered` | `cancelled` | Use "returned" instead for reversals |
 | `cancelled` | Any | Final state |
 | `completed` | Any | Final state |
+| `returned` | Any | Final state |
 
 ---
 
@@ -38,15 +38,15 @@
 
 **Allowed Transitions:**
 
-| From | To | Condition | Notes |
-|------|----|-----------|-------|
-| `draft` | `confirmed` | Supplier confirmation | |
-| `draft` | `cancelled` | Before confirmation | |
-| `confirmed` | `processing` | Supplier started | |
-| `confirmed` | `cancelled` | Supplier agreed | |
-| `processing` | `delivered` | Goods received | **Transaction created** (expense, payment_status = unpaid) |
-| `delivered` | `completed` | Final payment | |
-| `delivered` | `cancelled` | Return to supplier | Reversal movements + transaction |
+| From         | To           | Condition             | Notes                                                      |
+| ------------ | ------------ | --------------------- | ---------------------------------------------------------- |
+| `draft`      | `confirmed`  | Supplier confirmation |                                                            |
+| `draft`      | `cancelled`  | Before confirmation   |                                                            |
+| `confirmed`  | `processing` | Supplier started      |                                                            |
+| `confirmed`  | `cancelled`  | Supplier agreed       |                                                            |
+| `processing` | `delivered`  | Goods received        | **Transaction created** (expense, payment_status = unpaid) |
+| `delivered`  | `completed`  | Final payment         |                                                            |
+| `delivered`  | `cancelled`  | Return to supplier    | Reversal movements + transaction                           |
 
 **Forbidden:** Same logic as Sales.
 
@@ -58,13 +58,13 @@
 
 **Allowed Transitions:**
 
-| From | To | Condition | Notes |
-|------|----|-----------|-------|
-| `pending` | `in_progress` | Raw materials available | |
-| `pending` | `cancelled` | Before start | |
-| `in_progress` | `completed` | Quality pass | Consumes materials, produces products |
-| `in_progress` | `cancelled` | Aborted | Return reserved materials |
-| `completed` | `cancelled` | Admin override | Reverse all (rare) |
+| From          | To            | Condition               | Notes                                 |
+| ------------- | ------------- | ----------------------- | ------------------------------------- |
+| `pending`     | `in_progress` | Raw materials available |                                       |
+| `pending`     | `cancelled`   | Before start            |                                       |
+| `in_progress` | `completed`   | Quality pass            | Consumes materials, produces products |
+| `in_progress` | `cancelled`   | Aborted                 | Return reserved materials             |
+| `completed`   | `cancelled`   | Admin override          | Reverse all (rare)                    |
 
 ---
 
@@ -74,13 +74,13 @@
 
 **Allowed Transitions:**
 
-| From | To | Condition | Notes |
-|------|----|-----------|-------|
-| `draft` | `approved` | Manager approval | **Transaction created** (payment_status = unpaid) |
-| `draft` | `cancelled` | Before approval | |
-| `approved` | `paid` | Payment processed | |
-| `approved` | `cancelled` | Before payment | Reverse transaction |
-| `paid` | `cancelled` | Admin override | Reverse (rare) |
+| From       | To          | Condition         | Notes                                             |
+| ---------- | ----------- | ----------------- | ------------------------------------------------- |
+| `draft`    | `approved`  | Manager approval  | **Transaction created** (payment_status = unpaid) |
+| `draft`    | `cancelled` | Before approval   |                                                   |
+| `approved` | `paid`      | Payment processed |                                                   |
+| `approved` | `cancelled` | Before payment    | Reverse transaction                               |
+| `paid`     | `cancelled` | Admin override    | Reverse (rare)                                    |
 
 ---
 
@@ -90,22 +90,23 @@
 
 **Allowed Transitions:**
 
-| From | To | Condition | Notes |
-|------|----|-----------|-------|
-| `pending` | `confirmed` | Bank/cash confirmation | Creates allocations, updates transaction.payment_status |
-| `pending` | `cancelled` | Before confirmation | |
-| `confirmed` | `cancelled` | Admin reversal | Reverse allocations |
+| From        | To          | Condition              | Notes                                                   |
+| ----------- | ----------- | ---------------------- | ------------------------------------------------------- |
+| `pending`   | `confirmed` | Bank/cash confirmation | Creates allocations, updates transaction.payment_status |
+| `pending`   | `cancelled` | Before confirmation    |                                                         |
+| `confirmed` | `cancelled` | Admin reversal         | Reverse allocations                                     |
 
 ---
 
 ## 6. Transactions (`transactions`)
 
-**States:** `draft` (optional, only for payroll/manual expense), `posted`, `reversed`
+**States:** `posted`, `reversed`
 
 **Rules:**
-- Most transactions (`sale`, `purchase`) are created directly as `posted`.
-- Only `payroll` or `manual expense` may use `draft` → `posted`.
-- `posted` → `reversed` only via reversal.
+
+- All transactions are created directly as `posted` by Domain Hooks
+- `posted` → `reversed` only via reversal transaction
+- No `draft` state for transactions
 
 ---
 
@@ -115,10 +116,10 @@
 
 **Allowed Transitions:**
 
-| From | To | Condition | Notes |
-|------|----|-----------|-------|
+| From      | To         | Condition    | Notes                                        |
+| --------- | ---------- | ------------ | -------------------------------------------- |
 | `pending` | `approved` | Quality pass | Creates material movement (IN) + transaction |
-| `pending` | `rejected` | Quality fail | No stock impact |
+| `pending` | `rejected` | Quality fail | No stock impact                              |
 
 ---
 
@@ -164,11 +165,12 @@
 
 **Allowed Transitions:**
 
-| From | To | Condition | Notes |
-|------|----|-----------|-------|
+| From    | To       | Condition        | Notes                                                                                                                 |
+| ------- | -------- | ---------------- | --------------------------------------------------------------------------------------------------------------------- |
 | `draft` | `locked` | Payroll approval | **Only locks attendance records for the same payroll period (month/year).** No other attendance records are affected. |
 
 **Forbidden:**
+
 - `locked` → `draft` (cannot unlock once locked, unless admin override).
 - Any → `deleted`.
 
