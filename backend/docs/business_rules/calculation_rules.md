@@ -25,13 +25,13 @@ Source of Truth:
 
 ### Reserved Stock
 
-reserved_stock = SUM(active reservations managed by StockService)
+`reserved_stock = SUM(active reservations managed by StockService)`
 
 Source of Truth:
-StockService maintains this projection via reserveStock() and releaseReservation()
+`StockService` maintains this projection via `reserveStock()` and `releaseReservation()`
 
 Rule:
-reserved_stock is a cached projection maintained exclusively by StockService.
+`reserved_stock` is a cached projection maintained exclusively by `StockService`.
 It must never be modified directly by hooks or UI.
 
 ### Available Stock
