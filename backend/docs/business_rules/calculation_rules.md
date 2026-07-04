@@ -1,4 +1,3 @@
-
 # Calculation Rules
 
 **Version:** v1.0  
@@ -26,11 +25,14 @@ Source of Truth:
 
 ### Reserved Stock
 
-`reserved_stock = SUM(active inventory_reservations.quantity)`
+reserved_stock = SUM(active reservations managed by StockService)
 
 Source of Truth:
+StockService maintains this projection via reserveStock() and releaseReservation()
 
-`inventory_reservations`
+Rule:
+reserved_stock is a cached projection maintained exclusively by StockService.
+It must never be modified directly by hooks or UI.
 
 ### Available Stock
 
@@ -237,5 +239,7 @@ Examples:
 - `net_profit`
 
 These values are projections calculated from source records and business events.
+
 ```
 
+```
