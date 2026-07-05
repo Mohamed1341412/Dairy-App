@@ -83,6 +83,10 @@ Material stock fields are cached projections maintained by MaterialService.
 Domain hooks create material movements and update projections
 inside the same transaction.
 
+**Correction Strategy:**
+Errors are corrected via new adjustment movements with
+`corrects_movement_id` pointing to the original movement.
+
 ---
 
 ## Reserved Stock Truth (MVP)
