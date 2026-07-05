@@ -87,6 +87,27 @@ Audit Engine (AuditService)
 
 ---
 
+### MaterialService
+
+**Owns:**
+
+- `materials.current_stock`
+- `materials.available_stock`
+- `materials.reserved_stock`
+
+**Methods:**
+
+- `applyMovement()` - Updates material stock from material movements
+- `reserve()` - Reserves materials for production batches
+- `releaseReservation()` - Releases reserved materials
+- `ensureAvailable()` - Validates material availability
+
+**Called By:**
+
+- Domain Hooks (inside their transactions)
+
+---
+
 ## Hook Responsibilities
 
 ### Domain Hooks (Orchestrators)
@@ -105,13 +126,17 @@ Audit Engine (AuditService)
 1. Open transaction boundary (`runInTransaction`)
 2. Create source-of-truth records:
    - `inventory_movements`
+   - `material_movements`
    - `transactions`
    - `payments`
 3. Call Services to update projections:
    - `StockService.applyMovement()`
+   - `MaterialService.applyMovement()`
    - `LedgerService.projectTransaction()`
    - `PaymentService.allocatePayment()`
-4. Coordinate multi-step workflows
+4. Coordinate multi-step
+
+---
 
 **Example Flow (Sales Delivery):**
 
@@ -139,6 +164,39 @@ onRecordAfterUpdateRequest((e) => {
 });
 
 ---
+
+### Example Flow (Purchase Receipt):
+
+``javascript
+onRecordBeforeUpdateRequest((e) => {
+     if (status changed from 'draft' to 'received') {
+         // All operations happen in same transaction (BeforeUpdate)
+
+         // 1. Create movements for each item
+         for (item of items) {
+             if (item.line_type === 'product') {
+                 movement = createInventoryMovement(item);
+                 $app.dao().saveRecord(movement);
+                 StockService.applyMovement($app.dao(), movement);
+             } else if (item.line_type === 'material') {
+                 movement = createMaterialMovement(item);
+                 $app.dao().saveRecord(movement);
+                 MaterialService.applyMovement($app.dao(), movement);
+             }
+         }
+
+         // 2. Create financial transaction
+         transaction = createTransaction(order);
+         $app.dao().saveRecord(transaction);
+
+         // 3. Project to ledgers
+         LedgerService.projectTransaction($app.dao(), transaction, 'payable');
+     }
+ });
+
+
+---
+
 
 ### Integrity Hooks (Guards)
 
