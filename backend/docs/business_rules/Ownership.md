@@ -94,17 +94,42 @@ Only the designated owner may modify a field.
 
 ### materials.current_stock
 
-**Type:** Cached Projection  
-**Owner:** `MaterialService` (or `StockService` if unified)  
-**Updated By:**
+- **Type:** Cached Projection
+- **Owner:** `MaterialService`
+- **Updated By:**
+  - `MaterialService.applyMovement()` (called by Domain Hooks)
+- **Must NOT Be Updated By:**
+  - `inventory_hooks` (audit only)
+  - `sales_hooks` (orchestrator only)
+  - `purchase_hooks` (orchestrator only)
+  - `production_hooks` (orchestrator only)
+  - Flutter UI
 
-- Material movement operations
+### materials.reserved_stock
 
-**Must NOT Be Updated By:**
+- **Type:** Cached Projection
+- **Owner:** `MaterialService`
+- **Updated By:**
+  - `MaterialService.reserve()` (called by production_hooks)
+  - `MaterialService.releaseReservation()` (called by production_hooks)
 
-- `purchase_hooks` (orchestrator only)
-- `production_hooks` (orchestrator only)
-- Flutter UI
+- **Must NOT Be Updated By:**
+  - `sales_hooks` (orchestrator only)
+  - `purchase_hooks` (orchestrator only)
+  - `inventory_hooks` (audit only)
+  - Flutter UI
+
+### materials.available_stock
+
+- **Type:** Cached Projection
+- **Formula:** `available_stock = current_stock - reserved_stock`
+- **Owner:** `MaterialService`
+- **Updated By:**
+  - `MaterialService._recalculateAndSave()` (internal helper)
+
+- **Must NOT Be Updated By:**
+  - Any hook
+  - Flutter UI
 
 ---
 
