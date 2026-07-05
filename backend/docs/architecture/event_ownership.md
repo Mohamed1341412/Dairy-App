@@ -138,26 +138,40 @@ onRecordAfterUpdateRequest((e) => {
     }
 });
 
-Integrity Hooks (Guards)
-Examples:
-finance_hooks
-inventory_hooks
-Responsibilities:
-Validate data integrity
-Check field values
-Enforce business rules
-Enforce immutability
-Prevent editing posted transactions
-Prevent editing delivered orders
-Enforce append-only
-Prevent updating inventory_movements
-Prevent deleting transactions
-Generate reference numbers
-ReferenceNumberService.generate('TX')
-ReferenceNumberService.generate('SO')
-Log audit events
-Track critical operations
-Record state changes
+---
+
+### Integrity Hooks (Guards)
+
+**Examples:**
+- `finance_hooks`
+- `inventory_hooks`
+
+**Responsibilities:**
+1. **Validate data integrity**
+   - Check field values
+   - Enforce business rules
+
+2. **Enforce immutability**
+   - Prevent editing posted transactions
+   - Prevent editing delivered orders
+
+3. **Enforce append-only**
+   - Prevent updating `inventory_movements`
+   - Prevent deleting `transactions`
+
+4. **Generate reference numbers**
+   - `ReferenceNumberService.generate('TX')`
+   - `ReferenceNumberService.generate('SO')`
+
+5. **Log audit events**
+   - Track critical operations
+   - Record state changes
+
+**Must NOT:**
+- Execute business logic
+- Update projections
+- Create ledgers or movements
+
 Example (finance_hooks):
 
 onRecordBeforeUpdateRequest((e) => {
@@ -172,6 +186,7 @@ onRecordBeforeUpdateRequest((e) => {
     }
 });
 
+---
 
 
 ## Must NOT Rules
@@ -186,6 +201,8 @@ onRecordBeforeUpdateRequest((e) => {
 | ❌ Services → Open Transactions | Services must receive dao from hooks |
 | ❌ finance_hooks → Create Ledgers | finance_hooks only protects transactions |
 | ❌ inventory_hooks → Update Stock | inventory_hooks only audits movements |
+
+---
 
 **Allowed Patterns**
 - Pattern 1: Domain Hook with Services :
@@ -208,6 +225,7 @@ onRecordAfterUpdateRequest((e) => {
         LedgerService.projectTransaction(txDao, transaction);
     });
 });
+---
 
 - Pattern 2: Integrity Hook Validation:
 
@@ -221,6 +239,7 @@ onRecordAfterCreateRequest((e) => {
     // Audit only
     AuditService.log(...);
 });
+---
 
 - Pattern 3: Service Method:
 
@@ -232,6 +251,7 @@ applyMovement: function(dao, movement) {
     product.set('available_stock', newStock - reserved);
     dao.saveRecord(product);
 }
+---
 
 **Transaction Boundaries**
 
@@ -251,12 +271,15 @@ sales_hooks opens transaction
 Commit (all succeed) OR Rollback (any fails)
 
 
-*** Summary ***
+## Summary
 
-- Domain Hooks : Orchestrators
-- Integrity Hooks: Guards
-- Services: Executors
-- UI : Consumer
+| Component | Role | Example |
+|-----------|------|---------|
+| **Domain Hooks** | Orchestrators | `sales_hooks`, `purchase_hooks` |
+| **Integrity Hooks** | Guards | `finance_hooks`, `inventory_hooks` |
+| **Services** | Executors | `StockService`, `LedgerService` |
+| **UI** | Consumer | Flutter app |
+
 
 **Flow** :
 
