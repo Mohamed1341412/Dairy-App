@@ -61,16 +61,27 @@ inside the same transaction.
 
 ## Material Stock Truth
 
-Source:
+**Source:**
 
-- material_movements
+- `material_movements` (append-only event log)
 
-Derived:
+**Projection Owner:**
 
-- materials.current_stock
+- `MaterialService`
 
-Rule:
+**Derived Fields:**
+
+- `materials.current_stock`
+- `materials.available_stock`
+- `materials.reserved_stock`
+
+**Rule:**
 Material movements are the source of truth.
+Material stock fields are cached projections maintained by MaterialService.
+
+**Transaction Rule:**
+Domain hooks create material movements and update projections
+inside the same transaction.
 
 ---
 
