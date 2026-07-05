@@ -21,14 +21,15 @@
 | `delivered` | `returned`  | Customer return        | Creates reversal inventory_movements (IN) + reversal transaction       |
 
 **Forbidden Transitions:**
-| From | To | Reason |
-|------|----|--------|
-| `confirmed` | `draft` | Once confirmed, cannot go back |
-| `delivered` | `draft` | Already delivered |
+
+| From        | To          | Reason                               |
+| ----------- | ----------- | ------------------------------------ |
+| `confirmed` | `draft`     | Once confirmed, cannot go back       |
+| `delivered` | `draft`     | Already delivered                    |
 | `delivered` | `cancelled` | Use "returned" instead for reversals |
-| `cancelled` | Any | Final state |
-| `completed` | Any | Final state |
-| `returned` | Any | Final state |
+| `cancelled` | Any         | Final state                          |
+| `completed` | Any         | Final state                          |
+| `returned`  | Any         | Final state                          |
 
 ---
 
