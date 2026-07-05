@@ -20,6 +20,15 @@
 
 **Implementation Rule:**
 
+    ## MVP Idempotency Strategy
+
+    For MVP, idempotency for state transitions (like Sales Confirm, Purchase Deliver) is enforced by the **State Machine**.
+    Hooks are triggered by `onRecordAfterUpdateRequest` only when `oldStatus` transitions to `newStatus`.
+    If a request is retried, the status is already updated, so the hook will not execute again.
+
+    The `event_key` / unique constraint pattern described below is reserved for **v2**,
+    when we implement dedicated event tables (like `inventory_reservations` or an `events` log).
+
     Hooks MUST NOT perform a `SELECT` to check existence before `INSERT`.
     Instead, the hook should:
 
