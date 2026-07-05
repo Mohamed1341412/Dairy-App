@@ -323,6 +323,27 @@ StockService maintains all stock projections.
 
 ---
 
+### Transaction Ownership
+
+- Services never open transactions
+- Domain hooks own transaction boundaries and coordinate services inside a single transaction
+- Movement creation and projection updates happen atomically
+- Either all operations succeed or all fail
+
+### Append-Only Records
+
+- `inventory_movements` are append-only (cannot be updated or deleted)
+- `transactions` are append-only (corrections via reversals)
+- `payment_allocations` are append-only
+
+### Projection Rules
+
+- Projections are never edited manually
+- Only the designated service may update projections
+- Projections can be rebuilt from source of truth records
+
+---
+
 # Deletion Rules
 
 Default policy:
