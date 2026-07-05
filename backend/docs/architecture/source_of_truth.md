@@ -212,16 +212,16 @@ Audit logs are historical truth.
 
 ## Ownership Summary
 
-| Domain            | Source of Truth                            | Owner            |
-| ----------------- | ------------------------------------------ | ---------------- |
-| Product Stock     | inventory_movements                        | inventory_hooks  |
-| Material Stock    | material_movements                         | material_hooks   |
-| Reserved Stock    | confirmed sales_orders + sales_order_items | sales_hooks      |
-| Financial Records | transactions                               | finance_hooks    |
-| Payments          | payments + allocations                     | payment_hooks    |
-| Production        | production_batches                         | production_hooks |
-| Attendance        | attendance                                 | payroll_hooks    |
-| Audit             | activity_logs                              | AuditService     |
+| Domain            | Source of Truth        | Projection Owner                       |
+| ----------------- | ---------------------- | -------------------------------------- |
+| Product Stock     | inventory_movements    | StockService                           |
+| Material Stock    | material_movements     | MaterialService (or StockService)      |
+| Reserved Stock    | Reservation operations | StockService                           |
+| Financial Records | transactions           | LedgerService (called by Domain Hooks) |
+| Payments          | payments + allocations | PaymentService                         |
+| Production        | production_batches     | production_hooks                       |
+| Attendance        | attendance             | payroll_hooks                          |
+| Audit             | activity_logs          | AuditService                           |
 
 ---
 
