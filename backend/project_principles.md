@@ -323,6 +323,23 @@ StockService maintains all stock projections.
 
 ---
 
+### Material Rules
+
+Material movements are the source of truth for materials.
+Material stock changes only through material_movements.
+Material reservations change only through MaterialService reservation methods.
+Material stock fields are cached projections.
+
+Never edit directly:
+
+- materials.current_stock
+- materials.reserved_stock
+- materials.available_stock
+
+MaterialService maintains all material stock projections.
+
+---
+
 ### Transaction Ownership
 
 - Services never open transactions
