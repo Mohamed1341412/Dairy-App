@@ -15,7 +15,7 @@ Update `products.reserved_stock` (decrease)
 Update `products.available_stock` (increase) |
 
 | **Sales Cancel (confirmed)** | `sales_orders.status` → `cancelled` | `sales_hooks.pb.js` | Release reservations |
-| **Sales Cancel (delivered)** | `sales_orders.status` → `cancelled` (admin) | `sales_hooks.pb.js` | Create reversal `inventory_movements` (IN) <br> Create reversal `transaction` |
+| **Sales Return (delivered)** | `sales_orders.status` → `returned` (admin) | `sales_hooks.pb.js` | Create reversal `inventory_movements` (IN) <br> Create reversal `transaction` |
 | **Sales Cancel** | `sales_orders.status` → `cancelled` | `sales_hooks.pb.js` | Reverse the above stock updates (decrease reserved, increase available) |
 | **Purchase Deliver** | `purchase_orders.status` → `delivered` | `purchase_hooks.pb.js` | Create `material_movements` (IN) <br> Create `transaction` (expense, payment_status = unpaid) |
 | **Purchase Cancel** | `purchase_orders.status` → `cancelled` | `purchase_hooks.pb.js` | Reversal movements + reversal transaction |
@@ -24,7 +24,7 @@ Update `products.available_stock` (increase) |
 | **Payroll Approve** | `payroll_records.status` → `approved` | `payroll_hooks.pb.js` | Create `transaction` (payroll expense, payment_status = unpaid) |
 | **Raw Milk Approve** | `raw_milk_receiving.status` → `approved` | `raw_milk_hooks.pb.js` | Create `material_movements` (IN) <br> Create `transaction` (expense) |
 | **Transaction Created** | `transactions` created | `finance_hooks.pb.js` | Create `client_ledgers` <br> Create `vendor_ledgers` <br> Create `financial_account_ledgers` |
-| **Inventory Movement** | `inventory_movements` created | `inventory_hooks.pb.js` | Update `products.current_stock` <br> Update `product_batches.quantity_remaining` |
+| **Inventory Movement** | `inventory_movements` created | `Domain Hooks (via StockService) ` | Update `products.current_stock` <br> Update `product_batches.quantity_remaining` |
 | **Material Movement** | `material_movements` created | `material_hooks.pb.js` | Update `materials.current_stock` |
 
 **Golden Rule** :
