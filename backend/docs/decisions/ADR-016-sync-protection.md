@@ -1,4 +1,4 @@
-# ADR-018 — Sync Protection
+# ADR-016 — Sync Protection
 
 ## Status:
 
