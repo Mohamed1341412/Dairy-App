@@ -1,7 +1,7 @@
 // pb_hooks/services/ledger_projection_service.pb.js
 
 /**
- * LedgerProjectionService (v3.0 - Clean Ledger Projection Engine)
+ * LedgerProjectionService (v4.0 - Final Clean Design)
  *
  * ⚠️ ARCHITECTURAL BOUNDARY:
  * - مسؤول فقط عن إسقاط Transaction موجود إلى دفاتر الأستاذ
@@ -9,25 +9,16 @@
  * - لا يعكس Transactions
  * - يأخذ Transaction جاهزة فقط ويقوم بالـ Projection
  *
+ * ⚠️ CLEAN DESIGN PRINCIPLES:
+ * - projectTransaction() هو مصدر الحقيقة الوحيد للـ Posting Logic
+ * - _applyReversal() هو helper تقني لتطبيق الـ reversal فقط
+ * - _calculatePartyBalance() هو helper لحساب الرصيد بناءً على partyType
+ * - _postPartyLedger() و _postAccountLedger() هي Dumb Functions (كتابة فقط)
+ * - لا يوجد أي Helper يعرف client أو vendor أو worker
+ * - لا يوجد Business Logic موزع داخل الـ Helpers
+ *
  * ⚠️ ATOMICITY RULE:
  * يجب استدعاء هذا الـ Service داخل runInTransaction من قِبَل Domain Hook.
- *
- * ⚠️ GENERIC DESIGN:
- * - يعتمد على tx.type, tx.party_type, tx.direction, tx.is_reversal
- * - لا يحتاج entryType parameter
- * - لا يحتاج reference parameter
- * - يستنتج كل شيء من Transaction نفسها
- *
- * ⚠️ SUPPORTED LEDGERS:
- * - client_ledgers (party_type = 'client')
- * - vendor_ledgers (party_type = 'vendor')
- * - worker_ledgers (party_type = 'worker')
- * - financial_account_ledgers (affects_cashflow = true)
- *
- * ⚠️ CLEAN DESIGN PRINCIPLES:
- * - لا re-query للـ Transaction (يتم تمرير tx object)
- * - لا dependency على أسماء Collections في المعادلات
- * - global_posting_sequence يجب أن يكون موجوداً مسبقاً (setup)
  */
 
 const LedgerProjectionService = {
@@ -40,12 +31,10 @@ const LedgerProjectionService = {
    * إسقاط Transaction موجود إلى دفاتر الأستاذ.
    * ⚠️ يجب استدعاؤها داخل runInTransaction من قِبَل Domain Hook.
    *
-   * ⚠️ CLEAN DESIGN:
-   * - يعتمد على tx.type, tx.party_type, tx.direction, tx.is_reversal
-   * - لا يحتاج entryType parameter
-   * - لا يحتاج reference parameter
-   * - يكتب في Party Ledger + Financial Account Ledger تلقائياً
-   * - يمرر tx object مباشرة (لا re-query)
+   * ⚠️ RESPONSIBILITIES:
+   * - تحديد debit/credit لكل Ledger بشكل صريح
+   * - تطبيق الـ reversal
+   * - استدعاء الـ Dumb Functions للكتابة
    */
   projectTransaction: function (dao, tx) {
     // ✅ Fail-Fast: الصمت في الأنظمة المالية جريمة.
@@ -58,203 +47,133 @@ const LedgerProjectionService = {
     const amount = tx.getFloat("amount");
     if (amount <= 0) return; // لا توجد حركة مالية
 
+    // ✅ Validation مرة واحدة
     const direction = tx.get("direction");
-    const partyType = tx.get("party_type");
-    const accountId = tx.get("account_id");
-    const affectsCashflow = tx.get("affects_cashflow");
+    if (direction !== "in" && direction !== "out") {
+      throw new Error(
+        `Invalid direction: ${direction}. Must be 'in' or 'out'.`,
+      );
+    }
+
     const isReversal = tx.get("is_reversal") || false;
-    const entryType = tx.get("type");
 
     // ✅ 1. معالجة حركة الخزينة/البنك (Cashflow)
-    if (affectsCashflow) {
+    if (tx.get("affects_cashflow")) {
+      const accountId = tx.get("account_id");
       if (!accountId) {
         throw new Error(
           `Transaction affects_cashflow=true but account_id is missing.`,
         );
       }
 
-      if (direction === "in") {
-        this._postAccountLedger(dao, accountId, tx, amount, 0, isReversal);
-      } else if (direction === "out") {
-        this._postAccountLedger(dao, accountId, tx, 0, amount, isReversal);
-      } else {
-        throw new Error(
-          `Invalid direction: ${direction}. Must be 'in' or 'out'.`,
-        );
-      }
+      // Financial Account: in → debit, out → credit
+      let debit = direction === "in" ? amount : 0;
+      let credit = direction === "out" ? amount : 0;
+
+      // Apply reversal
+      const posting = this._applyReversal(debit, credit, isReversal);
+      this._postAccountLedger(
+        dao,
+        accountId,
+        tx,
+        posting.debit,
+        posting.credit,
+      );
     }
 
     // ✅ 2. معالجة ذمم الأطراف (Clients, Vendors, Workers)
+    const partyType = tx.get("party_type");
     if (partyType) {
+      const partyId = tx.get(`${partyType}_id`);
+      if (!partyId) {
+        throw new Error(
+          `Transaction has party_type='${partyType}' but ${partyType}_id is missing.`,
+        );
+      }
+
+      let debit, credit;
+
       if (partyType === "client") {
-        const clientId = tx.get("client_id");
-        if (!clientId) {
-          throw new Error(
-            `Transaction has party_type='client' but client_id is missing.`,
-          );
-        }
-
-        if (direction === "in") {
-          this._postPartyLedger(
-            dao,
-            "clients",
-            "client_ledgers",
-            "client_id",
-            clientId,
-            tx,
-            partyType,
-            0,
-            amount,
-            isReversal,
-          );
-        } else if (direction === "out") {
-          this._postPartyLedger(
-            dao,
-            "clients",
-            "client_ledgers",
-            "client_id",
-            clientId,
-            tx,
-            partyType,
-            amount,
-            0,
-            isReversal,
-          );
-        } else {
-          throw new Error(
-            `Invalid direction: ${direction}. Must be 'in' or 'out'.`,
-          );
-        }
-      } else if (partyType === "vendor") {
-        const vendorId = tx.get("vendor_id");
-        if (!vendorId) {
-          throw new Error(
-            `Transaction has party_type='vendor' but vendor_id is missing.`,
-          );
-        }
-
-        if (direction === "out") {
-          this._postPartyLedger(
-            dao,
-            "vendors",
-            "vendor_ledgers",
-            "vendor_id",
-            vendorId,
-            tx,
-            partyType,
-            amount,
-            0,
-            isReversal,
-          );
-        } else if (direction === "in") {
-          this._postPartyLedger(
-            dao,
-            "vendors",
-            "vendor_ledgers",
-            "vendor_id",
-            vendorId,
-            tx,
-            partyType,
-            0,
-            amount,
-            isReversal,
-          );
-        } else {
-          throw new Error(
-            `Invalid direction: ${direction}. Must be 'in' or 'out'.`,
-          );
-        }
-      } else if (partyType === "worker") {
-        const workerId = tx.get("worker_id");
-        if (!workerId) {
-          throw new Error(
-            `Transaction has party_type='worker' but worker_id is missing.`,
-          );
-        }
-
-        if (direction === "out") {
-          this._postPartyLedger(
-            dao,
-            "workers",
-            "worker_ledgers",
-            "worker_id",
-            workerId,
-            tx,
-            partyType,
-            amount,
-            0,
-            isReversal,
-          );
-        } else if (direction === "in") {
-          this._postPartyLedger(
-            dao,
-            "workers",
-            "worker_ledgers",
-            "worker_id",
-            workerId,
-            tx,
-            partyType,
-            0,
-            amount,
-            isReversal,
-          );
-        } else {
-          throw new Error(
-            `Invalid direction: ${direction}. Must be 'in' or 'out'.`,
-          );
-        }
+        // Client (Asset - AR): in → credit, out → debit (معكوس)
+        debit = direction === "out" ? amount : 0;
+        credit = direction === "in" ? amount : 0;
+      } else if (partyType === "vendor" || partyType === "worker") {
+        // Vendor/Worker (Liability - AP): in → credit, out → debit (معكوس)
+        debit = direction === "out" ? amount : 0;
+        credit = direction === "in" ? amount : 0;
       } else {
         throw new Error(
           `Unsupported party_type: ${partyType}. Must be 'client', 'vendor', or 'worker'.`,
         );
       }
+
+      // Apply reversal
+      const posting = this._applyReversal(debit, credit, isReversal);
+      this._postPartyLedger(
+        dao,
+        partyType,
+        partyId,
+        tx,
+        posting.debit,
+        posting.credit,
+      );
     }
   },
 
   // ==========================================
-  // 2. INTERNAL HELPERS
+  // 2. REVERSAL HELPER (Technical Only)
   // ==========================================
 
   /**
-   * حساب الرصيد الجديد بناءً على partyType (ليس collection name).
+   * Helper تقني لتطبيق الـ reversal فقط.
+   * ⚠️ لا يعرف شيئاً عن Business Logic.
+   * ⚠️ وظيفته الوحيدة: تطبيق الـ reversal (swap debit/credit).
+   */
+  _applyReversal: function (debit, credit, isReversal) {
+    if (isReversal) {
+      return { debit: credit, credit: debit };
+    }
+    return { debit, credit };
+  },
+
+  // ==========================================
+  // 3. BALANCE CALCULATION HELPER
+  // ==========================================
+
+  /**
+   * حساب الرصيد الجديد بناءً على partyType.
    * ⚠️ Business Logic معزولة في مكان واحد.
    */
-  _calculateNewBalance: function (partyType, oldBalance, debit, credit) {
-    // Client: debit يزيد المدين (نستلم منه أقل)
-    // Vendor/Worker: credit يزيد الدائن (ندفع له أقل)
+  _calculatePartyBalance: function (partyType, oldBalance, debit, credit) {
     if (partyType === "client") {
+      // Client (Asset): debit يزيد، credit يقلل
       return oldBalance + debit - credit;
     }
-    // vendor, worker
+    // Vendor/Worker (Liability): credit يزيد، debit يقلل
     return oldBalance + credit - debit;
   },
 
+  // ==========================================
+  // 4. DUMB FUNCTIONS (Write Only)
+  // ==========================================
+
   /**
-   * إنشاء ledger entry للطرف (client/vendor/worker).
-   * ⚠️ يجب استدعاؤها داخل runInTransaction من قِبَل Domain Hook.
-   * ⚠️ CLEAN: يأخذ tx object مباشرة (لا re-query).
+   * Dumb Function: كتابة ledger entry للطرف فقط.
+   * ⚠️ لا تحتوي أي Business Logic.
+   * ⚠️ تستقبل debit و credit جاهزين.
    */
-  _postPartyLedger: function (
-    dao,
-    partyCollection,
-    ledgerCollection,
-    partyField,
-    partyId,
-    tx,
-    partyType,
-    debit,
-    credit,
-    isReversal,
-  ) {
+  _postPartyLedger: function (dao, partyType, partyId, tx, debit, credit) {
     if (debit === 0 && credit === 0) return;
+
+    const partyCollection = partyType + "s";
+    const ledgerCollection = partyType + "_ledgers";
+    const partyField = partyType + "_id";
 
     const party = dao.findRecordById(partyCollection, partyId);
     if (!party) throw new Error(`${partyCollection} not found: ${partyId}`);
 
     const oldBalance = party.getFloat("cached_balance") || 0;
-
-    // ✅ CLEAN: استخدام partyType بدلاً من partyCollection
-    const newBalance = this._calculateNewBalance(
+    const newBalance = this._calculatePartyBalance(
       partyType,
       oldBalance,
       debit,
@@ -270,29 +189,29 @@ const LedgerProjectionService = {
     ledger.set("debit", debit);
     ledger.set("credit", credit);
     ledger.set("balance_after", newBalance);
-    ledger.set("is_reversal", isReversal);
+    ledger.set("is_reversal", tx.get("is_reversal") || false);
 
-    // ✅ CLEAN: استخدام tx object مباشرة (لا re-query)
+    // Structured Reference من Transaction
     ledger.set("ref_type", tx.get("reference_collection") || "");
     ledger.set("ref_id", tx.get("reference_id") || "");
     ledger.set("ref_number", tx.get("reference_number") || "");
 
-    // ✅ Immutable Posting Sequence
+    // Immutable Posting Sequence
     ledger.set("posting_sequence", this._getNextPostingSequence(dao));
 
     dao.saveRecord(ledger);
 
-    // ✅ تحديث cached_balance على الطرف
+    // تحديث cached_balance على الطرف
     party.set("cached_balance", newBalance);
     dao.saveRecord(party);
   },
 
   /**
-   * إنشاء ledger entry للحساب المالي (cash/bank).
-   * ⚠️ يجب استدعاؤها داخل runInTransaction من قِبَل Domain Hook.
-   * ⚠️ CLEAN: يأخذ tx object مباشرة (لا re-query).
+   * Dumb Function: كتابة ledger entry للحساب المالي فقط.
+   * ⚠️ لا تحتوي أي Business Logic.
+   * ⚠️ تستقبل debit و credit جاهزين.
    */
-  _postAccountLedger: function (dao, accountId, tx, debit, credit, isReversal) {
+  _postAccountLedger: function (dao, accountId, tx, debit, credit) {
     if (debit === 0 && credit === 0) return;
 
     const account = dao.findRecordById("financial_accounts", accountId);
@@ -314,9 +233,9 @@ const LedgerProjectionService = {
       "entry_date",
       tx.get("business_date") || tx.get("transaction_date"),
     );
-    ledger.set("is_reversal", isReversal);
+    ledger.set("is_reversal", tx.get("is_reversal") || false);
 
-    // ✅ CLEAN: استخدام tx object مباشرة (لا re-query)
+    // Structured Reference من Transaction
     ledger.set("ref_type", tx.get("reference_collection") || "");
     ledger.set("ref_id", tx.get("reference_id") || "");
     ledger.set("ref_number", tx.get("reference_number") || "");
@@ -325,18 +244,18 @@ const LedgerProjectionService = {
 
     dao.saveRecord(ledger);
 
-    // ✅ تحديث cached_balance على الحساب المالي
+    // تحديث cached_balance على الحساب المالي
     account.set("cached_balance", newBalance);
     dao.saveRecord(account);
   },
 
   // ==========================================
-  // 3. SEQUENCE GENERATOR (Setup-Dependent)
+  // 5. SEQUENCE GENERATOR (Setup-Dependent)
   // ==========================================
 
   /**
    * توليد posting_sequence التالي.
-   * ⚠️ CLEAN: يعتمد على وجود global_posting_sequence في system_settings.
+   * ⚠️ يعتمد على وجود global_posting_sequence في system_settings.
    * ⚠️ إذا لم يكن موجوداً، يرمي Error (لأنه إعداد يجب إنشاؤه أثناء Setup).
    */
   _getNextPostingSequence: function (dao) {
@@ -345,7 +264,6 @@ const LedgerProjectionService = {
       'key = "global_posting_sequence"',
     );
 
-    // ✅ CLEAN: رمي Error إذا لم يكن الإعداد موجوداً (setup issue)
     if (!setting) {
       throw new Error(
         "Critical: global_posting_sequence system setting is missing. Please run system setup.",
