@@ -2,7 +2,12 @@
 
 const StockService = require(`${__hooks}/services/stock_service.pb.js`);
 const MaterialService = require(`${__hooks}/services/material_service.pb.js`);
-const LedgerService = require(`${__hooks}/services/ledger_service.pb.js`);
+const TransactionService = require(
+  `${__hooks}/services/transaction_service.pb.js`,
+);
+const LedgerProjectionService = require(
+  `${__hooks}/services/ledger_projection_service.pb.js`,
+);
 const ReferenceNumberService = require(
   `${__hooks}/services/reference_number_service.pb.js`,
 );
@@ -30,6 +35,133 @@ const AuditService = require(`${__hooks}/services/audit_service.pb.js`);
  */
 
 // ==========================================
+// CONSTANTS (Single Source of Truth)
+// ==========================================
+
+const PURCHASES = "purchase_orders";
+const PURCHASE_ITEMS = "purchase_order_items";
+
+const VALID_TRANSITIONS = Object.freeze({
+  draft: ["received", "cancelled"],
+  received: ["returned"],
+  returned: [],
+  cancelled: [],
+});
+
+const IMMUTABLE_AFTER_DRAFT = Object.freeze(["vendor_id", "net_amount"]);
+
+// ==========================================
+// LOCAL HELPERS (Reduce Duplication)
+// ==========================================
+
+/**
+ * Helper: Extract business date from order
+ */
+function getBusinessDate(order) {
+  return order.get("business_date") || order.get("purchase_date");
+}
+
+/**
+ * Helper: Load purchase order items
+ */
+function getOrderItems(dao, orderId) {
+  return dao.findRecordsByFilter(
+    PURCHASE_ITEMS,
+    `purchase_order_id = "${orderId}"`,
+  );
+}
+
+/**
+ * Helper: Log Audit Entry
+ */
+function logAudit(e, action, recordId, data) {
+  AuditService.log({
+    userId: AuditService.getUserId(e),
+    action: action,
+    operationType: OperationTypes.UPDATE,
+    collectionName: PURCHASES,
+    recordId: recordId,
+    newData: data,
+  });
+}
+
+/**
+ * Helper: Assert order is in draft status
+ */
+function assertDraftOrder(dao, orderId, action) {
+  let order;
+  try {
+    order = dao.findRecordById(PURCHASES, orderId);
+  } catch (err) {
+    throw new Error(`Purchase order not found: ${orderId}`);
+  }
+
+  const status = order.get("status");
+  if (status !== "draft") {
+    const actionWord =
+      action === "add" ? "added" : action === "modify" ? "modified" : "deleted";
+    throw new Error(
+      `Cannot ${action} items of a ${status} order. Only draft orders can have items ${actionWord}.`,
+    );
+  }
+}
+
+/**
+ * Helper: Create and save Movement only (doesn't call applyMovement)
+ */
+function createMovement(dao, options) {
+  const movement = new $classes.Record(
+    dao.findCollectionByNameOrId(options.collection),
+  );
+
+  movement.set(options.idField, options.itemId);
+  movement.set("direction", options.direction);
+  movement.set("quantity", options.qty);
+  movement.set("movement_type", options.movementType);
+  movement.set("business_date", options.businessDate);
+  movement.set("reference_number", options.referenceNumber);
+
+  dao.saveRecord(movement);
+  return movement;
+}
+
+/**
+ * Helper: Process purchase item movement (product or material)
+ */
+function processItemMovement(dao, item, options) {
+  const qty = item.getFloat("quantity");
+  const lineType = item.get("line_type");
+
+  if (lineType === "product") {
+    const movement = createMovement(dao, {
+      collection: "inventory_movements",
+      idField: "product_id",
+      itemId: item.get("product_id"),
+      direction: options.direction,
+      qty: qty,
+      movementType: options.movementType,
+      businessDate: options.businessDate,
+      referenceNumber: options.referenceNumber,
+    });
+    StockService.applyMovement(dao, movement);
+  } else if (lineType === "material") {
+    const movement = createMovement(dao, {
+      collection: "material_movements",
+      idField: "material_id",
+      itemId: item.get("material_id"),
+      direction: options.direction,
+      qty: qty,
+      movementType: options.movementType,
+      businessDate: options.businessDate,
+      referenceNumber: options.referenceNumber,
+    });
+    MaterialService.applyMovement(dao, movement);
+  } else {
+    throw new Error(`Unsupported line_type: ${lineType}`);
+  }
+}
+
+// ==========================================
 // 1. BEFORE CREATE: Reference Number Generation
 // ==========================================
 onRecordBeforeCreateRequest((e) => {
@@ -39,26 +171,20 @@ onRecordBeforeCreateRequest((e) => {
   if (!e.record.get("status")) {
     e.record.set("status", "draft");
   }
-}, "purchase_orders");
+}, PURCHASES);
 
 // ==========================================
 // 2. BEFORE UPDATE: Status Transition & Side Effects
 // ==========================================
 onRecordBeforeUpdateRequest((e) => {
+  const dao = e.dao;
   const oldStatus = e.oldRecord.get("status");
   const newStatus = e.record.get("status");
 
   if (oldStatus === newStatus) return;
 
-  // A. Validate Status Transitions (simplified lifecycle)
-  const validTransitions = {
-    draft: ["received", "cancelled"],
-    received: ["returned"],
-    returned: [],
-    cancelled: [],
-  };
-
-  if (!validTransitions[oldStatus]?.includes(newStatus)) {
+  // A. Validate Status Transitions
+  if (!VALID_TRANSITIONS[oldStatus]?.includes(newStatus)) {
     throw new Error(
       `Invalid status transition from '${oldStatus}' to '${newStatus}'.`,
     );
@@ -66,8 +192,7 @@ onRecordBeforeUpdateRequest((e) => {
 
   // B. Protect Financial Fields After Receipt
   if (oldStatus !== "draft" && newStatus !== "draft") {
-    const protectedFields = ["vendor_id", "net_amount"];
-    for (const field of protectedFields) {
+    for (const field of IMMUTABLE_AFTER_DRAFT) {
       if (e.oldRecord.get(field) !== e.record.get(field)) {
         throw new Error(`Field '${field}' cannot be modified after receipt.`);
       }
@@ -79,101 +204,46 @@ onRecordBeforeUpdateRequest((e) => {
   const orderRef = e.record.get("reference_number");
   const vendorId = e.record.get("vendor_id");
   const netAmount = e.record.getFloat("net_amount");
-  const businessDate =
-    e.record.get("business_date") || e.record.get("purchase_date");
+  const businessDate = getBusinessDate(e.record);
 
   // ==========================================
   // EVENT: Draft → Received (Stock IN + Payable)
   // ==========================================
   if (oldStatus === "draft" && newStatus === "received") {
-    const items = $app
-      .dao()
-      .findRecordsByFilter(
-        "purchase_order_items",
-        `purchase_order_id = "${orderId}"`,
-      );
+    const items = getOrderItems(dao, orderId);
 
-    // Process each item based on line_type
     for (const item of items) {
-      const lineType = item.get("line_type");
-      const qty = item.getFloat("quantity");
-
-      if (lineType === "product") {
-        // Create inventory movement for product
-        const movementCollection = $app
-          .dao()
-          .findCollectionByNameOrId("inventory_movements");
-        const movement = new $classes.Record(movementCollection);
-        movement.set("product_id", item.get("product_id"));
-        movement.set("direction", "in");
-        movement.set("quantity", qty);
-        movement.set("movement_type", "purchase");
-        movement.set("business_date", businessDate);
-        movement.set("reference_number", orderRef);
-        $app.dao().saveRecord(movement);
-
-        // Apply stock projection
-        StockService.applyMovement($app.dao(), movement);
-      } else if (lineType === "material") {
-        // Create material movement
-        const movementCollection = $app
-          .dao()
-          .findCollectionByNameOrId("material_movements");
-        const movement = new $classes.Record(movementCollection);
-        movement.set("material_id", item.get("material_id"));
-        movement.set("direction", "in");
-        movement.set("quantity", qty);
-        movement.set("movement_type", "purchase");
-        movement.set("business_date", businessDate);
-        movement.set("reference_number", orderRef);
-        $app.dao().saveRecord(movement);
-
-        // Apply material stock projection
-        MaterialService.applyMovement($app.dao(), movement);
-      }
+      processItemMovement(dao, item, {
+        direction: "in",
+        movementType: "purchase",
+        businessDate: businessDate,
+        referenceNumber: orderRef,
+      });
     }
 
-    // Create financial transaction (Payable)
-    const txCollection = $app.dao().findCollectionByNameOrId("transactions");
-    const txRecord = new $classes.Record(txCollection);
-    txRecord.set("transaction_number", ReferenceNumberService.generate("TX"));
-    txRecord.set("type", "purchase");
-    txRecord.set("party_type", "vendor");
-    txRecord.set("vendor_id", vendorId);
-    txRecord.set("amount", netAmount);
-    txRecord.set("direction", "out"); // We owe the vendor
-    txRecord.set("affects_cashflow", false); // Invoice doesn't move cash yet
-    txRecord.set("status", "posted");
-    txRecord.set("business_date", businessDate);
-    txRecord.set("transaction_date", businessDate);
-    txRecord.set("transaction_source", "purchase_order");
-    txRecord.set("reference_collection", "purchase_orders");
-    txRecord.set("reference_id", orderId);
-    txRecord.set("reference_number", orderRef);
-    txRecord.set("paid_amount", 0);
-    txRecord.set("remaining_amount", netAmount);
-    $app.dao().saveRecord(txRecord);
+    const txRecord = TransactionService.create(dao, {
+      type: "purchase",
+      partyType: "vendor",
+      vendorId: vendorId,
+      amount: netAmount,
+      direction: "out",
+      affectsCashflow: false,
+      transactionDate: businessDate,
+      businessDate: businessDate,
+      source: "purchase_order",
+      referenceCollection: PURCHASES,
+      referenceId: orderId,
+      referenceNumber: orderRef,
+      paidAmount: 0,
+      remainingAmount: netAmount,
+      paymentStatus: "unpaid",
+    });
 
-    // Project to ledger
-    const reference = {
-      type: "purchase_orders",
-      id: orderId,
-      number: orderRef,
-    };
-    LedgerService.projectTransaction(
-      $app.dao(),
-      txRecord,
-      "payable",
-      reference,
-    );
+    LedgerProjectionService.projectTransaction(dao, txRecord);
 
-    AuditService.log({
-      userId: AuditService.getUserId(e),
-      action: AuditActions.PURCHASE_ORDER_RECEIVED,
-      operationType: OperationTypes.UPDATE,
-      collectionName: "purchase_orders",
-      recordId: orderId,
-      newData: { status: "received", transaction_id: txRecord.id },
+    logAudit(e, AuditActions.PURCHASE_ORDER_RECEIVED, orderId, {
+      status: "received",
+      transaction_id: txRecord.id,
     });
   }
 
@@ -181,104 +251,35 @@ onRecordBeforeUpdateRequest((e) => {
   // EVENT: Received → Returned (Reverse Movement + Reversal)
   // ==========================================
   else if (oldStatus === "received" && newStatus === "returned") {
-    const items = $app
-      .dao()
-      .findRecordsByFilter(
-        "purchase_order_items",
-        `purchase_order_id = "${orderId}"`,
-      );
+    const items = getOrderItems(dao, orderId);
 
-    // Process each item based on line_type
     for (const item of items) {
-      const lineType = item.get("line_type");
-      const qty = item.getFloat("quantity");
-
-      if (lineType === "product") {
-        // Create reverse inventory movement
-        const movementCollection = $app
-          .dao()
-          .findCollectionByNameOrId("inventory_movements");
-        const movement = new $classes.Record(movementCollection);
-        movement.set("product_id", item.get("product_id"));
-        movement.set("direction", "out");
-        movement.set("quantity", qty);
-        movement.set("movement_type", "return");
-        movement.set("business_date", businessDate);
-        movement.set("reference_number", orderRef);
-        $app.dao().saveRecord(movement);
-
-        // Apply stock projection
-        StockService.applyMovement($app.dao(), movement);
-      } else if (lineType === "material") {
-        // Create reverse material movement
-        const movementCollection = $app
-          .dao()
-          .findCollectionByNameOrId("material_movements");
-        const movement = new $classes.Record(movementCollection);
-        movement.set("material_id", item.get("material_id"));
-        movement.set("direction", "out");
-        movement.set("quantity", qty);
-        movement.set("movement_type", "return");
-        movement.set("business_date", businessDate);
-        movement.set("reference_number", orderRef);
-        $app.dao().saveRecord(movement);
-
-        // Apply material stock projection
-        MaterialService.applyMovement($app.dao(), movement);
-      }
+      processItemMovement(dao, item, {
+        direction: "out",
+        movementType: "purchase_return",
+        businessDate: businessDate,
+        referenceNumber: orderRef,
+      });
     }
 
-    // Find original transaction
-    const originalTx = $app
-      .dao()
-      .findFirstRecordByFilter(
-        "transactions",
-        `reference_collection = "purchase_orders" && reference_id = "${orderId}"`,
-      );
-
-    // Create reversal transaction
-    const txCollection = $app.dao().findCollectionByNameOrId("transactions");
-    const reversalTx = new $classes.Record(txCollection);
-    reversalTx.set("transaction_number", ReferenceNumberService.generate("TX"));
-    reversalTx.set("type", originalTx.get("type"));
-    reversalTx.set("party_type", "vendor");
-    reversalTx.set("vendor_id", vendorId);
-    reversalTx.set("amount", originalTx.getFloat("amount"));
-    reversalTx.set("direction", "in"); // Opposite direction
-    reversalTx.set("affects_cashflow", false);
-    reversalTx.set("status", "posted");
-    reversalTx.set("business_date", businessDate);
-    reversalTx.set("transaction_date", businessDate);
-    reversalTx.set("transaction_source", "purchase_order");
-    reversalTx.set("reference_collection", "purchase_orders");
-    reversalTx.set("reference_id", orderId);
-    reversalTx.set("reference_number", orderRef);
-    reversalTx.set("is_reversal", true);
-    reversalTx.set("reversal_of", originalTx.id);
-    reversalTx.set("paid_amount", 0);
-    reversalTx.set("remaining_amount", originalTx.getFloat("amount"));
-    $app.dao().saveRecord(reversalTx);
-
-    // Project reversal to ledger
-    const reference = {
-      type: "purchase_orders",
-      id: orderId,
-      number: orderRef,
-    };
-    LedgerService.projectTransaction(
-      $app.dao(),
-      reversalTx,
-      "reversal",
-      reference,
+    // Find original transaction (exclude reversals to avoid ambiguity)
+    const originalTx = dao.findFirstRecordByFilter(
+      "transactions",
+      `reference_collection = "${PURCHASES}" && reference_id = "${orderId}" && is_reversal = false`,
     );
 
-    AuditService.log({
-      userId: AuditService.getUserId(e),
-      action: AuditActions.PURCHASE_ORDER_RETURNED,
-      operationType: OperationTypes.UPDATE,
-      collectionName: "purchase_orders",
-      recordId: orderId,
-      newData: { status: "returned", reversal_transaction_id: reversalTx.id },
+    const reversalTx = TransactionService.reverse(dao, originalTx, {
+      businessDate: businessDate,
+      paidAmount: 0,
+      remainingAmount: originalTx.getFloat("amount"),
+      paymentStatus: "unpaid",
+    });
+
+    LedgerProjectionService.projectTransaction(dao, reversalTx);
+
+    logAudit(e, AuditActions.PURCHASE_ORDER_RETURNED, orderId, {
+      status: "returned",
+      reversal_transaction_id: reversalTx.id,
     });
   }
 
@@ -286,71 +287,30 @@ onRecordBeforeUpdateRequest((e) => {
   // EVENT: Draft → Cancelled (No side effects)
   // ==========================================
   else if (oldStatus === "draft" && newStatus === "cancelled") {
-    AuditService.log({
-      userId: AuditService.getUserId(e),
-      action: AuditActions.PURCHASE_ORDER_CANCELLED,
-      operationType: OperationTypes.UPDATE,
-      collectionName: "purchase_orders",
-      recordId: orderId,
-      newData: { status: "cancelled" },
+    logAudit(e, AuditActions.PURCHASE_ORDER_CANCELLED, orderId, {
+      status: "cancelled",
     });
   }
-}, "purchase_orders");
+}, PURCHASES);
 
 // ==========================================
 // 3. PROTECT ITEMS: Create/Update/Delete After Receipt
 // ==========================================
 
-// Prevent creating items after receipt
 onRecordBeforeCreateRequest((e) => {
+  const dao = e.dao;
   const orderId = e.record.get("purchase_order_id");
-  try {
-    const order = $app.dao().findRecordById("purchase_orders", orderId);
-    const status = order.get("status");
+  assertDraftOrder(dao, orderId, "add");
+}, PURCHASE_ITEMS);
 
-    if (status !== "draft") {
-      throw new Error(
-        `Cannot add items to a ${status} order. Only draft orders can have items added.`,
-      );
-    }
-  } catch (err) {
-    if (err.message.includes("Cannot add items")) throw err;
-    throw new Error(`Order not found: ${orderId}`);
-  }
-}, "purchase_order_items");
-
-// Prevent updating items after receipt
 onRecordBeforeUpdateRequest((e) => {
+  const dao = e.dao;
   const orderId = e.record.get("purchase_order_id");
-  try {
-    const order = $app.dao().findRecordById("purchase_orders", orderId);
-    const status = order.get("status");
+  assertDraftOrder(dao, orderId, "modify");
+}, PURCHASE_ITEMS);
 
-    if (status !== "draft") {
-      throw new Error(
-        `Cannot modify items of a ${status} order. Only draft orders can have items modified.`,
-      );
-    }
-  } catch (err) {
-    if (err.message.includes("Cannot modify items")) throw err;
-    throw new Error(`Order not found: ${orderId}`);
-  }
-}, "purchase_order_items");
-
-// Prevent deleting items after receipt
 onRecordBeforeDeleteRequest((e) => {
+  const dao = e.dao;
   const orderId = e.record.get("purchase_order_id");
-  try {
-    const order = $app.dao().findRecordById("purchase_orders", orderId);
-    const status = order.get("status");
-
-    if (status !== "draft") {
-      throw new Error(
-        `Cannot delete items from a ${status} order. Only draft orders can have items deleted.`,
-      );
-    }
-  } catch (err) {
-    if (err.message.includes("Cannot delete items")) throw err;
-    throw new Error(`Order not found: ${orderId}`);
-  }
-}, "purchase_order_items");
+  assertDraftOrder(dao, orderId, "delete");
+}, PURCHASE_ITEMS);
