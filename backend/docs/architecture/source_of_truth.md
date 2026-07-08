@@ -143,7 +143,7 @@ payment_hooks.pb.js is the only owner.
    - `paid_amount`
    - `remaining_amount`
    - `payment_status` (`unpaid`, `partial`, `paid`, `overpaid`)
-3. **Rebuild Rule**: These fields MUST NEVER be edited directly via API or UI. They are automatically recalculated by the `PaymentService.refreshTransactionProjection()` method whenever an allocation is created or deleted.
+3. **Rebuild Rule**: These fields MUST NEVER be edited directly via API or UI. They are automatically recalculated by the `PaymentAllocationService.refreshTransactionProjection()` method whenever an allocation is created or deleted.
 4. **Payment Boundaries**: A single `payment` can be allocated across multiple `transactions`. The system enforces that `SUM      (payment_allocations.allocated_amount)` for a single payment never exceeds `payment.amount`.
 
 ### Deprecated Projections (UI Convenience Only)
@@ -233,7 +233,7 @@ Audit logs are historical truth.
 | Material Stock    | material_movements     | MaterialService (or StockService)      |
 | Reserved Stock    | Reservation operations | StockService                           |
 | Financial Records | transactions           | LedgerService (called by Domain Hooks) |
-| Payments          | payments + allocations | PaymentService                         |
+| Payments          | payments + allocations | PaymentAllocationService               |
 | Production        | production_batches     | production_hooks                       |
 | Attendance        | attendance             | payroll_hooks                          |
 | Audit             | activity_logs          | AuditService                           |
