@@ -7665,6 +7665,7 @@
           "purchase_order",
           "payroll",
           "expense",
+          "payment",
           "manual",
           "adjustment",
           "system"
