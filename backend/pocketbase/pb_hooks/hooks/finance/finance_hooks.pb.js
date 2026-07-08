@@ -97,7 +97,7 @@ onRecordBeforeCreateRequest((e) => {
       );
     }
 
-    const originalTx = $app.dao().findRecordById("transactions", originalTxId);
+    const originalTx = e.dao.findRecordById("transactions", originalTxId);
 
     if (originalTx.get("status") !== "posted") {
       throw new Error(
@@ -111,32 +111,12 @@ onRecordBeforeCreateRequest((e) => {
       );
     }
 
-    if (record.get("direction") === originalTx.get("direction")) {
-      throw new Error(
-        `A reversal transaction must have the opposite direction. Original: '${originalTx.get("direction")}', Reversal: '${record.get("direction")}'.`,
-      );
-    }
-
     const originalAmount = originalTx.getFloat("amount");
     const reversalAmount = record.getFloat("amount");
     if (Math.abs(originalAmount - reversalAmount) > MONEY_EPSILON) {
       throw new Error(
         `A reversal amount (${reversalAmount}) must exactly match the original amount (${originalAmount}). Partial reversals are not supported.`,
       );
-    }
-
-    // Double Reversal Check (Defense-in-Depth alongside DB Partial Unique Index)
-    try {
-      $app
-        .dao()
-        .findFirstRecordByFilter(
-          "transactions",
-          `reversal_of = "${originalTxId}"`,
-        );
-      throw new Error("This transaction has already been reversed.");
-    } catch (err) {
-      if (err.message === "This transaction has already been reversed.")
-        throw err;
     }
   }
 }, "transactions");
