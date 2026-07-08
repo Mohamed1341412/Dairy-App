@@ -253,21 +253,23 @@ onRecordBeforeUpdateRequest((e) => {
   else if (oldStatus === "received" && newStatus === "returned") {
     const items = getOrderItems(dao, orderId);
 
+    // 1. Reverse Physical Movement
     for (const item of items) {
       processItemMovement(dao, item, {
         direction: "out",
-        movementType: "purchase_return",
+        movementType: "return",
         businessDate: businessDate,
         referenceNumber: orderRef,
       });
     }
 
-    // Find original transaction (exclude reversals to avoid ambiguity)
+    // 2. Find original transaction
     const originalTx = dao.findFirstRecordByFilter(
       "transactions",
       `reference_collection = "${PURCHASES}" && reference_id = "${orderId}" && is_reversal = false`,
     );
 
+    // 3. Create reversal transaction
     const reversalTx = TransactionService.reverse(dao, originalTx, {
       businessDate: businessDate,
       paidAmount: 0,
@@ -275,6 +277,7 @@ onRecordBeforeUpdateRequest((e) => {
       paymentStatus: "unpaid",
     });
 
+    // 4. Project reversal to ledger
     LedgerProjectionService.projectTransaction(dao, reversalTx);
 
     logAudit(e, AuditActions.PURCHASE_ORDER_RETURNED, orderId, {
