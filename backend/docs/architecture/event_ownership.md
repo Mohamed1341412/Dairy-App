@@ -13,7 +13,7 @@ Domain Hooks (sales_hooks, purchase_hooks, etc.)
 ├── Call Services (StockService, LedgerService)
 └── Commit Transaction
 ↓
-Services (StockService, LedgerService, PaymentService)
+Services (StockService, LedgerService, PaymentAllocationService)
 ↓
 ├── Update Projections (stock, balances, ledgers)
 └── Maintain Data Integrity
@@ -68,7 +68,7 @@ Audit Engine (AuditService)
 
 ---
 
-### PaymentService
+### PaymentAllocationService
 
 **Owns:**
 
@@ -133,7 +133,7 @@ Audit Engine (AuditService)
    - `StockService.applyMovement()`
    - `MaterialService.applyMovement()`
    - `LedgerService.projectTransaction()`
-   - `PaymentService.allocatePayment()`
+   - `PaymentAllocationService.allocatePayment()`
 4. Coordinate multi-step
 
 ---
