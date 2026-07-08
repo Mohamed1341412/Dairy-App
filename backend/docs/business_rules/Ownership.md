@@ -207,11 +207,11 @@ Only the designated owner may modify a field.
 ### transactions.payment_status
 
 **Type:** Cached Projection  
-**Owner:** `PaymentService`  
+**Owner:** `PaymentAllocationService`  
 **Allowed Values:** `unpaid`, `partial`, `paid`, `overpaid`  
 **Updated By:**
 
-- `PaymentService.refreshTransactionProjection()` (called by payment_hooks)
+- `PaymentAllocationService.refreshTransactionProjection()` (called by payment_hooks)
 
 **Must NOT Be Updated By:**
 
