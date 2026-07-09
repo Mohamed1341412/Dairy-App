@@ -61,9 +61,10 @@ onRecordBeforeCreateRequest((e) => {
 
     // Original movement must exist and be for the same product
     try {
-      const originalMovement = $app
-        .dao()
-        .findRecordById("inventory_movements", correctsMovementId);
+      const originalMovement = e.dao.findRecordById(
+        "inventory_movements",
+        correctsMovementId,
+      );
 
       // Cannot correct an adjustment (prevents chains)
       if (originalMovement.get("movement_type") === "adjustment") {
