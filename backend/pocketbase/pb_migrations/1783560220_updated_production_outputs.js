@@ -18,4 +18,5 @@ migrate((app) => {
     "indexes": []
   }, collection)
 
+  return app.save(collection)
 })
