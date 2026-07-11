@@ -1,4 +1,5 @@
 {
   "dart.notifyAnalyzerErrors": false,
-  "dart.devToolsBrowser": "default"
+  "dart.devToolsBrowser": "default",
+  "terminal.integrated.defaultProfile.windows": "PowerShell"
 }
