@@ -6,7 +6,7 @@ Accepted
 
 ## Decision:
 
-sync_id must be unique.
+sync_id must be unique by using Unique Index in the schema.
 
 ## Consequences:
 
