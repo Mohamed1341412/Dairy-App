@@ -7,18 +7,17 @@
 
 ## 1. Sales Orders (`sales_orders`)
 
-**States:** `draft`, `confirmed`, `processing`, `delivered`, `completed`, `cancelled`
+**States:** `draft`, `confirmed`, `delivered`,`returned`, `cancelled`
 
 **Allowed Transitions:**
 
-| From        | To          | Condition              | Notes                                                                  |
-| ----------- | ----------- | ---------------------- | ---------------------------------------------------------------------- |
-| `draft`     | `confirmed` | Stock available        | Reservations created, no transaction yet                               |
-| `draft`     | `cancelled` | No payments made       |
-| `confirmed` | `delivered` | Shipment created       | Revenue recognized here (Transaction created, inventory_movements OUT) |
-| `confirmed` | `cancelled` | Not yet delivered      | Release reservations via StockService.releaseReservation()             |
-| `delivered` | `completed` | Payment fully received | Order closed                                                           |
-| `delivered` | `returned`  | Customer return        | Creates reversal inventory_movements (IN) + reversal transaction       |
+| From        | To          | Condition         | Notes                                                                  |
+| ----------- | ----------- | ----------------- | ---------------------------------------------------------------------- |
+| `draft`     | `confirmed` | Stock available   | Reservations created, no transaction yet                               |
+| `draft`     | `cancelled` | No payments made  |
+| `confirmed` | `delivered` | Shipment created  | Revenue recognized here (Transaction created, inventory_movements OUT) |
+| `confirmed` | `cancelled` | Not yet delivered | Release reservations via StockService.releaseReservation()             |
+| `delivered` | `returned`  | Customer return   | Creates reversal inventory_movements (IN) + reversal transaction       |
 
 **Forbidden Transitions:**
 
@@ -28,26 +27,22 @@
 | `delivered` | `draft`     | Already delivered                    |
 | `delivered` | `cancelled` | Use "returned" instead for reversals |
 | `cancelled` | Any         | Final state                          |
-| `completed` | Any         | Final state                          |
 | `returned`  | Any         | Final state                          |
 
 ---
 
 ## 2. Purchase Orders (`purchase_orders`)
 
-**States:** `draft`, `confirmed`, `processing`, `delivered`, `completed`, `cancelled`
+**States:** `draft`, `received`, `returned`, `cancelled`
 
 **Allowed Transitions:**
 
-| From         | To           | Condition             | Notes                                                      |
-| ------------ | ------------ | --------------------- | ---------------------------------------------------------- |
-| `draft`      | `confirmed`  | Supplier confirmation |                                                            |
-| `draft`      | `cancelled`  | Before confirmation   |                                                            |
-| `confirmed`  | `processing` | Supplier started      |                                                            |
-| `confirmed`  | `cancelled`  | Supplier agreed       |                                                            |
-| `processing` | `delivered`  | Goods received        | **Transaction created** (expense, payment_status = unpaid) |
-| `delivered`  | `completed`  | Final payment         |                                                            |
-| `delivered`  | `cancelled`  | Return to supplier    | Reversal movements + transaction                           |
+| From        | To          | Condition             | Notes                            |
+| ----------- | ----------- | --------------------- | -------------------------------- |
+| `draft`     | `received`  | Supplier confirmation |                                  |
+| `draft`     | `cancelled` | Before confirmation   |                                  |
+| `confirmed` | `cancelled` | Supplier agreed       |                                  |
+| `delivered` | `cancelled` | Return to supplier    | Reversal movements + transaction |
 
 **Forbidden:** Same logic as Sales.
 
@@ -75,26 +70,25 @@
 
 **Allowed Transitions:**
 
-| From       | To          | Condition         | Notes                                             |
-| ---------- | ----------- | ----------------- | ------------------------------------------------- |
-| `draft`    | `approved`  | Manager approval  | **Transaction created** (payment_status = unpaid) |
-| `draft`    | `cancelled` | Before approval   |                                                   |
-| `approved` | `paid`      | Payment processed |                                                   |
-| `approved` | `cancelled` | Before payment    | Reverse transaction                               |
-| `paid`     | `cancelled` | Admin override    | Reverse (rare)                                    |
+| From       | To          | Condition        | Notes                                             |
+| ---------- | ----------- | ---------------- | ------------------------------------------------- |
+| `draft`    | `approved`  | Manager approval | **Transaction created** (payment_status = unpaid) |
+| `draft`    | `cancelled` | Before approval  |                                                   |
+| `approved` | `cancelled` | Before payment   | Reverse transaction                               |
+| `paid`     | `cancelled` | Admin override   | Reverse (rare)                                    |
 
 ---
 
 ## 5. Payments (`payments`)
 
-**States:** `pending`, `confirmed`, `cancelled`
+**States:** `draft`, `confirmed`, `cancelled`
 
 **Allowed Transitions:**
 
 | From        | To          | Condition              | Notes                                                   |
 | ----------- | ----------- | ---------------------- | ------------------------------------------------------- |
-| `pending`   | `confirmed` | Bank/cash confirmation | Creates allocations, updates transaction.payment_status |
-| `pending`   | `cancelled` | Before confirmation    |                                                         |
+| `draft`     | `confirmed` | Bank/cash confirmation | Creates allocations, updates transaction.payment_status |
+| `draft`     | `cancelled` | Before confirmation    |                                                         |
 | `confirmed` | `cancelled` | Admin reversal         | Reverse allocations                                     |
 
 ---
@@ -138,7 +132,7 @@
 
 ## 10. Expenses (`expenses`)
 
-**States:** `draft`, `approved`, `paid`, `cancelled`
+**States:** `draft`, `approved`, `cancelled`
 
 ---
 
