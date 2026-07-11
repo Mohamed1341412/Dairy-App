@@ -1,8 +1,4 @@
-
 # Business Invariants
-
-**Version:** v1.0  
-**Date:** 2026-06-22
 
 ## Purpose
 
@@ -18,266 +14,163 @@ However, no operation is allowed to violate an invariant.
 
 If an invariant would be broken, the operation must fail.
 
----
+## Financial Invariants
 
-## 1. Inventory Invariants
+### INV-001: Financial Transactions are Append-Only
 
-### Product Stock
+**Rule**: Posted transactions cannot be modified or deleted.
 
-`products.current_stock >= 0`
+**Enforcement**:
 
-A product can never have negative stock.
+- `finance_hooks.pb.js`: Immutability Guard
+- `immutability_hooks.pb.js`: Strict immutability
 
-### Available Stock
-
-`products.available_stock >= 0`
-
-Available stock can never be negative.
-
-### Reserved Stock
-
-`products.reserved_stock >= 0`
-
-Reserved stock can never be negative.
-
-### Reservation Constraint
-
-`reserved_stock <= current_stock`
-
-Reserved quantity may never exceed physical stock.
-
-### Product Batch Remaining Quantity
-
-`product_batches.quantity_remaining >= 0`
-
-A batch can never have negative remaining quantity.
-
-### Batch Constraint
-
-`quantity_remaining <= quantity_produced`
-
-Remaining quantity cannot exceed originally produced quantity.
-
-### Material Stock
-
-`materials.current_stock >= 0`
-
-Raw materials may never become negative.
+**Violation**: Attempting to update a posted transaction throws an error.
 
 ---
 
-## 2. Financial Invariants
+### INV-002: Cancelled Transactions Cannot Become Active
 
-### Transaction Amount
+**Rule**: Once a transaction is cancelled/reversed, it cannot be reactivated.
 
-`transactions.amount > 0`
+**Enforcement**:
 
-All transactions must have positive amounts.
+- `finance_hooks.pb.js`: Status transition validation
 
-Reversals are represented by reversal transactions, not negative values.
-
-### Remaining Amount
-
-`transactions.remaining_amount >= 0`
-
-Remaining amount may never be negative.
-
-### Payment Constraint
-
-`transactions.paid_amount <= transactions.amount`
-
-Paid amount cannot exceed transaction amount.
-
-### Fully Paid Constraint
-
-`payment_status = paid`
-
-Requires:
-
-`remaining_amount = 0`
-
-### Unpaid Constraint
-
-`payment_status = unpaid`
-
-Requires:
-
-`paid_amount = 0`
-
-### Partial Constraint
-
-`payment_status = partial`
-
-Requires:
-
-`0 < paid_amount < amount`
+**Violation**: Attempting to change status from "cancelled" to "posted" throws an error.
 
 ---
 
-## 3. Sales Invariants
+### INV-003: Ledger Is Always Derived
 
-### Order Total
+**Rule**: Ledger entries are projections from transactions, never created directly.
 
-`sales_orders.total_amount = SUM(sales_order_items.line_total)`
+**Enforcement**:
 
-Order total must equal the sum of all order lines.
+- `LedgerProjectionService`: Sole owner of ledger creation
+- Hooks never write to ledger tables directly
 
-### Delivered Order
-
-If:
-
-`sales_orders.status = delivered`
-
-Then:
-
-`inventory_movements` must exist
-
-and
-
-`transaction` must exist
-
-### Completed Order
-
-If:
-
-`sales_orders.status = completed`
-
-Then:
-
-`payment_status = paid`
+**Violation**: No direct API to create ledger entries.
 
 ---
 
-## 4. Purchase Invariants
+## Business Document Invariants
 
-### Purchase Total
+### INV-004: Business Documents Never Move Cash
 
-`purchase_orders.total_amount = SUM(purchase_order_items.line_total)`
+**Rule**: Business documents (Sales, Purchase, Expense) create obligations, not cash movements.
 
-### Delivered Purchase
+**Enforcement**:
 
-If:
+- `TransactionService.create()`: `affects_cashflow = false` for business documents
+- Payment Module: Creates cash movements
 
-`purchase_orders.status = delivered`
-
-Then:
-
-`material_movements` must exist
-
-and
-
-`transaction` must exist
+**Violation**: Business document transactions always have `affects_cashflow = false`.
 
 ---
 
-## 5. Production Invariants
+### INV-005: Approved Purchase Cannot Be Edited
 
-### Output Requirement
+**Rule**: Once a purchase order is received, core fields cannot be modified.
 
-A completed production batch must contain at least one output.
+**Enforcement**:
 
-`COUNT(production_outputs) > 0`
+- `purchase_hooks.pb.js`: Immutability Guard
 
-### Input Requirement
-
-A completed production batch must contain at least one input.
-
-`COUNT(production_inputs) > 0`
-
-### Produced Quantity
-
-`quantity_produced > 0`
-
-### Product Batch Cost
-
-`unit_cost > 0`
+**Violation**: Attempting to modify `vendor_id` or `net_amount` after receipt throws an error.
 
 ---
 
-## 6. Payroll Invariants
+### INV-006: Payments Never Modify History
 
-### Net Salary
+**Rule**: Payments settle obligations but do not modify original transactions.
 
-`net_salary >= 0`
+**Enforcement**:
 
-### Payroll Total
+- `PaymentAllocationService`: Updates `paid_amount` and `remaining_amount`
+- Original transaction remains immutable
 
-`payroll_records.net_salary = base_salary + bonuses + allowances - deductions - penalties`
-
-### Locked Attendance
-
-If attendance is locked:
-
-`attendance.status = locked`
-
-Then:
-
-attendance cannot be modified
+**Violation**: Payments only update payment-related fields.
 
 ---
 
-## 7. Ledger Invariants
+## Inventory Invariants
 
-### Cached Balance
+### INV-007: Inventory Is Calculated Only Through Movements
 
-`cached_balance = SUM(all posted ledger entries)`
+**Rule**: Stock levels are derived from `inventory_movements`, never modified directly.
 
-### Ledger Immutability
+**Enforcement**:
 
-Posted ledger entries cannot be edited.
+- `StockService.applyMovement()`: Sole owner of stock updates
+- `inventory_hooks.pb.js`: Append-only protection
 
-They may only be reversed.
-
----
-
-## 8. Transaction Invariants
-
-### Posted Transaction
-
-If:
-
-`transactions.status = posted`
-
-Then:
-
-transaction becomes immutable
-
-### Reversed Transaction
-
-If:
-
-`transactions.status = reversed`
-
-Then:
-
-editing is forbidden
-
-### Deletion Rule
-
-Financial transactions must never be deleted.
-
-Only reversals are allowed.
+**Violation**: No direct API to modify `current_stock`.
 
 ---
 
-## 9. Audit Invariants
+### INV-008: Available Stock Is a Projection
 
-Every inventory event must be auditable.
+**Rule**: `available_stock = current_stock - reserved_stock`
 
-Every financial event must be auditable.
+**Enforcement**:
 
-Every state transition must be auditable.
+- `StockService._recalculateAndSave()`: Always recalculates
 
-Deletion of audit logs is forbidden.
+**Violation**: `available_stock` is never set directly.
 
 ---
 
-## Golden Rule
+## Audit Invariants
 
-If any operation violates an invariant:
+### INV-009: All Changes Are Logged
 
-`Operation = REJECTED`
+**Rule**: Every create/update/delete operation is logged in `activity_logs`.
 
-Data integrity has priority over user convenience.
-```
+**Enforcement**:
 
+- `AuditService.log()`: Called in all hooks
+- `activity_logs` table: Immutable
+
+**Violation**: No operation bypasses audit logging.
+
+---
+
+### INV-010: Soft Delete for Operational Entities
+
+**Rule**: Products, materials, clients, vendors, workers cannot be physically deleted.
+
+**Enforcement**:
+
+- `immutability_hooks.pb.js`: Deletion Guard
+- Use `is_archived` field instead
+
+**Violation**: Attempting to delete operational entities throws an error.
+
+---
+
+## Atomicity Invariants
+
+### INV-011: All Side Effects Are Atomic
+
+**Rule**: Status changes and side effects happen in the same transaction.
+
+**Enforcement**:
+
+- `e.dao`: Transaction-scoped DAO
+- `BeforeUpdate` hooks: All operations in same transaction
+
+**Violation**: Partial failures trigger rollback.
+
+---
+
+### INV-012: No Global DAO in Hooks
+
+**Rule**: Hooks must use `e.dao`, never `$app.dao()`.
+
+**Enforcement**:
+
+- Code review
+- Linting rules
+
+**Violation**: Using `$app.dao()` breaks atomicity.
