@@ -48,9 +48,9 @@ The reversal transaction must have:
 Domain Hooks (not finance_hooks) will:
 
 1. Create the reversal transaction record
-2. Call LedgerService.projectTransaction() inside the same transaction
-3. LedgerService creates reversal ledger entries (opposite debit/credit)
-4. LedgerService updates `cached_balance` by subtracting/adding the amount
+2. Call LedgerProjectionService.projectTransaction() inside the same transaction
+3. LedgerProjectionService creates reversal ledger entries (opposite debit/credit)
+4. LedgerProjectionService updates `cached_balance` by subtracting/adding the amount
 
 ### Example:
 
@@ -92,7 +92,7 @@ Reversal: Inventory Movement = `10 units`, `direction = in`, `movement_type = ad
 
 ---
 
-**Note:** Using `direction` as the sole indicator of reversal effect eliminates ambiguity and prevents double-counting errors.
+**Note:** Using `direction` as the sole indicator of reversal effect eliminates ambiguity and prevents double-counting errors, However LedgerProjectionService reverses the direction ( debit \ credit ) automaticly.
 
 ---
 
