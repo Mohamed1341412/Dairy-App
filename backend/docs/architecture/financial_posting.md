@@ -8,7 +8,7 @@
 
 - `sales_hooks`, `purchase_hooks`, `payroll_hooks`, `expense_hooks`, etc. may **ONLY** create `transactions`.
 - They must **NEVER** create `client_ledgers`, `vendor_ledgers`, or `financial_account_ledgers` directly.
-- `finance_hooks` is the **sole owner** of ledger creation.
+- `LedgerProjectionService` is the **sole owner** of ledger creation.
 - `finance_hooks` MUST be idempotent.
 - All generated ledgers must inherit the originating transaction `event_key`.
 
@@ -20,10 +20,10 @@ Open Transaction (runInTransaction)
 ↓
 
 1. Create Transaction record (with party_type, amount, direction, reference)
-2. Call LedgerService.projectTransaction(txDao, transaction)
-   ├── LedgerService creates client_ledgers / vendor_ledgers / worker_ledgers
-   ├── LedgerService creates financial_account_ledgers (if affects_cashflow = true)
-   └── LedgerService updates cached_balance in clients/vendors/workers/financial_accounts
+2. Call LedgerProjectionService.projectTransaction(txDao, transaction)
+   ├── LedgerProjectionService creates client_ledgers / vendor_ledgers / worker_ledgers
+   ├── LedgerProjectionService creates financial_account_ledgers (if affects_cashflow = true)
+   └── LedgerProjectionService updates cached_balance in clients/vendors/workers/financial_accounts
 3. Commit Transaction
 
 ## `transaction` Status Rules
