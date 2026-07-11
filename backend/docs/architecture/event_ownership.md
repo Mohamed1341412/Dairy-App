@@ -138,73 +138,15 @@ Audit Engine (AuditService)
 
 ---
 
-**Example Flow (Sales Delivery):**
-
-```javascript
-onRecordAfterUpdateRequest((e) => {
-    if (status changed to 'delivered') {
-        $app.dao().runInTransaction((txDao) => {
-            // 1. Create inventory movements
-            for (item of items) {
-                movement = createMovement(item);
-                txDao.saveRecord(movement);
-
-                // 2. Update stock projections
-                StockService.applyMovement(txDao, movement);
-            }
-
-            // 3. Create financial transaction
-            transaction = createTransaction(order);
-            txDao.saveRecord(transaction);
-
-            // 4. Project to ledgers
-            LedgerService.projectTransaction(txDao, transaction);
-        });
-    }
-});
-
----
-
-### Example Flow (Purchase Receipt):
-
-``javascript
-onRecordBeforeUpdateRequest((e) => {
-     if (status changed from 'draft' to 'received') {
-         // All operations happen in same transaction (BeforeUpdate)
-
-         // 1. Create movements for each item
-         for (item of items) {
-             if (item.line_type === 'product') {
-                 movement = createInventoryMovement(item);
-                 $app.dao().saveRecord(movement);
-                 StockService.applyMovement($app.dao(), movement);
-             } else if (item.line_type === 'material') {
-                 movement = createMaterialMovement(item);
-                 $app.dao().saveRecord(movement);
-                 MaterialService.applyMovement($app.dao(), movement);
-             }
-         }
-
-         // 2. Create financial transaction
-         transaction = createTransaction(order);
-         $app.dao().saveRecord(transaction);
-
-         // 3. Project to ledgers
-         LedgerService.projectTransaction($app.dao(), transaction, 'payable');
-     }
- });
-
-
----
-
-
 ### Integrity Hooks (Guards)
 
 **Examples:**
+
 - `finance_hooks`
 - `inventory_hooks`
 
 **Responsibilities:**
+
 1. **Validate data integrity**
    - Check field values
    - Enforce business rules
@@ -226,89 +168,26 @@ onRecordBeforeUpdateRequest((e) => {
    - Record state changes
 
 **Must NOT:**
+
 - Execute business logic
 - Update projections
 - Create ledgers or movements
 
-Example (finance_hooks):
-
-onRecordBeforeUpdateRequest((e) => {
-    // Prevent editing posted transactions
-    if (e.oldRecord.get('status') === 'posted') {
-        throw new Error("Posted transactions are immutable");
-    }
-
-    // Validate reversal rules
-    if (e.record.get('is_reversal')) {
-        validateReversal(e.record);
-    }
-});
-
 ---
-
 
 ## Must NOT Rules
 
-| Violation | Reason |
-|-----------|--------|
-| ❌ UI → Ledger | Flutter must never update ledgers directly |
-| ❌ UI → Stock  | Flutter must never modify stock fields directly |
-| ❌ UI → Projections | Flutter must never update cached balances directly |
+| Violation                            | Reason                                              |
+| ------------------------------------ | --------------------------------------------------- |
+| ❌ UI → Ledger                       | Flutter must never update ledgers directly          |
+| ❌ UI → Stock                        | Flutter must never modify stock fields directly     |
+| ❌ UI → Projections                  | Flutter must never update cached balances directly  |
 | ❌ Domain Hooks → Direct Calculation | Hooks must call Services, not calculate projections |
-| ❌ Integrity Hooks → Business Logic | Guards must validate, not execute workflows |
-| ❌ Services → Open Transactions | Services must receive dao from hooks |
-| ❌ finance_hooks → Create Ledgers | finance_hooks only protects transactions |
-| ❌ inventory_hooks → Update Stock | inventory_hooks only audits movements |
+| ❌ Integrity Hooks → Business Logic  | Guards must validate, not execute workflows         |
+| ❌ Services → Open Transactions      | Services must receive dao from hooks                |
+| ❌ finance_hooks → Create Ledgers    | finance_hooks only protects transactions            |
+| ❌ inventory_hooks → Update Stock    | inventory_hooks only audits movements               |
 
----
-
-**Allowed Patterns**
-- Pattern 1: Domain Hook with Services :
-
-// sales_hooks.pb.js
-onRecordAfterUpdateRequest((e) => {
-    $app.dao().runInTransaction((txDao) => {
-        // Create movement
-        movement = createMovement(...);
-        txDao.saveRecord(movement);
-
-        // Update stock via Service
-        StockService.applyMovement(txDao, movement);
-
-        // Create transaction
-        transaction = createTransaction(...);
-        txDao.saveRecord(transaction);
-
-        // Project to ledgers via Service
-        LedgerService.projectTransaction(txDao, transaction);
-    });
-});
----
-
-- Pattern 2: Integrity Hook Validation:
-
-// inventory_hooks.pb.js
-onRecordBeforeUpdateRequest((e) => {
-    // Prevent modification
-    throw new Error("inventory_movements are append-only");
-});
-
-onRecordAfterCreateRequest((e) => {
-    // Audit only
-    AuditService.log(...);
-});
----
-
-- Pattern 3: Service Method:
-
-// stock_service.pb.js
-applyMovement: function(dao, movement) {
-    // Update projections
-    product = dao.findRecordById('products', productId);
-    product.set('current_stock', newStock);
-    product.set('available_stock', newStock - reserved);
-    dao.saveRecord(product);
-}
 ---
 
 **Transaction Boundaries**
@@ -320,32 +199,31 @@ Prevents partial updates
 Maintains data consistency
 Example:
 sales_hooks opens transaction
-    ↓
-    ├── Create movement
-    ├── Update stock
-    ├── Create transaction
-    ├── Project ledgers
-    ↓
+↓
+├── Create movement
+├── Update stock
+├── Create transaction
+├── Project ledgers
+↓
 Commit (all succeed) OR Rollback (any fails)
-
 
 ## Summary
 
-| Component | Role | Example |
-|-----------|------|---------|
-| **Domain Hooks** | Orchestrators | `sales_hooks`, `purchase_hooks` |
-| **Integrity Hooks** | Guards | `finance_hooks`, `inventory_hooks` |
-| **Services** | Executors | `StockService`, `LedgerService` |
-| **UI** | Consumer | Flutter app |
-
+| Component           | Role          | Example                            |
+| ------------------- | ------------- | ---------------------------------- |
+| **Domain Hooks**    | Orchestrators | `sales_hooks`, `purchase_hooks`    |
+| **Integrity Hooks** | Guards        | `finance_hooks`, `inventory_hooks` |
+| **Services**        | Executors     | `StockService`, `LedgerService`    |
+| **UI**              | Consumer      | Flutter app                        |
 
 **Flow** :
 
 UI → Domain Hook → Service → Database
-              ↓
-         Integrity Hook (validation)
+↓
+Integrity Hook (validation)
 
 ## End of Document
 
+```
 
 ```
